@@ -98,6 +98,23 @@ function requiredText(value, label, maximum = 500) {
   return value.trim();
 }
 
+function intakeScope(value) {
+  if (value === undefined) return null;
+  const {subjectType, subjectName, jurisdiction, reportingYear, recipient} = commandBody(value,
+    ['subjectType', 'subjectName', 'jurisdiction', 'reportingYear', 'recipient']);
+  if (!['organization', 'facility', 'product', 'project'].includes(subjectType)) {
+    badRequest('请选择组织、设施、产品或项目作为报告对象。');
+  }
+  if (typeof reportingYear !== 'string' || !/^(?!0000)\d{4}$/.test(reportingYear)) {
+    badRequest('报告年度必须为四位年份。');
+  }
+  return {
+    subjectType, subjectName: requiredText(subjectName, '报告对象名称', 120),
+    jurisdiction: requiredText(jurisdiction, '地区', 80), reportingYear,
+    recipient: requiredText(recipient, '交付对象', 120)
+  };
+}
+
 function evidenceFileInput(request) {
   const {body, contentType} = request;
   const mediaType = typeof contentType === 'string' ? contentType.trim().toLowerCase() : '';
@@ -248,11 +265,11 @@ export function createCarbonApi(database, {quarantine} = {}) {
               uuid(input.orgId, '组织'), uuid(caseId, '任务'), uuid(batchId, '批次'), revision(input.previewRevision))};
           }
           if (path === '/v1/customer/cases') {
-            const input = commandBody(request.body, ['orgId', 'scenarioReleaseId', 'purpose']);
+            const input = commandBody(request.body, ['orgId', 'scenarioReleaseId', 'purpose'], ['scope']);
             return {status: 201, body: await intake.create(scope, {
               orgId: uuid(input.orgId, '组织'),
               scenarioReleaseId: uuid(input.scenarioReleaseId, '场景版本'),
-              purpose: requiredText(input.purpose, '办理用途')
+              purpose: requiredText(input.purpose, '办理用途'), intakeScope: intakeScope(input.scope)
             })};
           }
           const evidence = routes.evidence.exec(path);

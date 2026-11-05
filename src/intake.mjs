@@ -12,6 +12,7 @@ export class CarbonError extends Error {
 const caseFields = `id, org_id AS "orgId", scenario_release_id AS "scenarioReleaseId",
   created_by AS "createdBy", purpose, status, revision, return_reason AS "returnReason",
   correction_note AS "correctionNote"`;
+const caseDetailFields = `${caseFields}, intake_scope AS scope`;
 const eventFields = `id, case_id AS "caseId", actor_id AS "actorId", action, reason, revision,
   correction_note AS "correctionNote", request_id AS "requestId", created_at AS "createdAt"`;
 const evidenceFields = `id, case_id AS "caseId", org_id AS "orgId", registered_by AS "registeredBy",
@@ -33,6 +34,10 @@ function caseMissing() {
   return new CarbonError(404, 'CASE_NOT_FOUND', '未找到可访问的受理任务。');
 }
 
+function caseDetail({scope, ...task}) {
+  return scope === null ? task : {...task, scope};
+}
+
 async function requireRole(tx, scope, orgId, role) {
   const result = await tx.query(`
     SELECT 1 FROM carbon.org_grant
@@ -43,13 +48,13 @@ async function requireRole(tx, scope, orgId, role) {
 
 async function readCase(tx, scope, orgId, id, customerOnly = false, lock = false) {
   const result = await tx.query(`
-    SELECT ${caseFields} FROM carbon.case_intake
+    SELECT ${caseDetailFields} FROM carbon.case_intake
     WHERE tenant_id = $1 AND org_id = $2 AND id = $3
       AND ($4::uuid IS NULL OR created_by = $4)
     ${lock ? 'FOR NO KEY UPDATE' : ''}
   `, [scope.tenantId, orgId, id, customerOnly ? scope.actorId : null]);
   if (result.rows.length === 0) throw caseMissing();
-  return result.rows[0];
+  return caseDetail(result.rows[0]);
 }
 
 async function readVisibleCase(tx, scope, orgId, id, customerOnly) {
@@ -131,12 +136,12 @@ async function transition(tx, scope, orgId, id, revision, before, after, custome
     UPDATE carbon.case_intake SET status = $6, revision = revision + 1, return_reason = $8${correctionAssignment}
     WHERE tenant_id = $1 AND org_id = $2 AND id = $3 AND revision = $4 AND status = $5
       AND ($7::uuid IS NULL OR created_by = $7)
-    RETURNING ${caseFields}
+    RETURNING ${caseDetailFields}
   `, params);
   if (result.rows.length === 0) {
     throw new CarbonError(409, 'CASE_CONFLICT', '任务状态或版本已变化，请刷新后重试。');
   }
-  return result.rows[0];
+  return caseDetail(result.rows[0]);
 }
 
 function nextAction(item, scope, customerOnly) {
@@ -461,11 +466,11 @@ export function createIntakeService(database, quarantine) {
         }
         const result = await tx.query(`
           INSERT INTO carbon.case_intake
-            (tenant_id, id, org_id, scenario_release_id, created_by, purpose)
-          VALUES ($1, $2, $3, $4, $5, $6)
-          RETURNING ${caseFields}
-        `, [scope.tenantId, randomUUID(), input.orgId, input.scenarioReleaseId, scope.actorId, input.purpose]);
-        return result.rows[0];
+            (tenant_id, id, org_id, scenario_release_id, created_by, purpose, intake_scope)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+          RETURNING ${caseDetailFields}
+        `, [scope.tenantId, randomUUID(), input.orgId, input.scenarioReleaseId, scope.actorId, input.purpose, input.intakeScope]);
+        return caseDetail(result.rows[0]);
       });
     },
 

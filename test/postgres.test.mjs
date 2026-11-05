@@ -40,8 +40,11 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
     const api = createCarbonApi(runtime, { quarantine });
     const dispatch = (actorId, method, path, body, contentType) =>
       api.dispatch({ method, path, body, contentType }, { tenantId, actorId, requestId: randomUUID() });
-    const created = await dispatch(customer, 'POST', '/v1/customer/cases', { orgId, scenarioReleaseId, purpose: '并行复核验证' });
+    const scope = { subjectType: 'facility', subjectName: '测试设施', jurisdiction: '上海市',
+      reportingYear: '2026', recipient: '内部管理组' };
+    const created = await dispatch(customer, 'POST', '/v1/customer/cases', { orgId, scenarioReleaseId, purpose: '并行复核验证', scope });
     assert.equal(created.status, 201);
+    assert.deepEqual(created.body.scope, scope);
     const id = created.body.id;
     const imports = `/v1/customer/cases/${id}/imports`;
     const firstImport = await dispatch(customer, 'POST', imports, {
@@ -147,6 +150,10 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
     if (evidenceReference) submission.evidenceIds = [evidenceReference.evidenceId];
     const submitted = await dispatch(customer, 'POST', `/v1/customer/cases/${id}/submit`, submission);
     assert.equal(submitted.status, 200);
+    assert.deepEqual(submitted.body.scope, scope);
+    const visible = await dispatch(reviewer, 'GET', `/v1/professional/cases/${id}?orgId=${orgId}`);
+    assert.equal(visible.status, 200);
+    assert.deepEqual(visible.body.scope, scope);
 
     if (evidenceReference) {
       const refs = await dispatch(reviewer, 'GET', `/v1/professional/cases/${id}/revisions/2/evidence?orgId=${orgId}`);
