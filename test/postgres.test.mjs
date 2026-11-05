@@ -43,6 +43,32 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
     const created = await dispatch(customer, 'POST', '/v1/customer/cases', { orgId, scenarioReleaseId, purpose: '并行复核验证' });
     assert.equal(created.status, 201);
     const id = created.body.id;
+    const imports = `/v1/customer/cases/${id}/imports`;
+    const firstImport = await dispatch(customer, 'POST', imports, {
+      orgId, csv: 'period,source,quantity,unit\n2026-01,electricity,1.0000000000000000001,MWh'
+    });
+    const competingImport = await dispatch(customer, 'POST', imports, {
+      orgId, csv: 'period,source,quantity,unit\n2026-01,electricity,2000,kWh'
+    });
+    assert.equal(firstImport.status, 200);
+    assert.equal(competingImport.status, 200);
+    const confirm = (batch, revision = batch.previewRevision) =>
+      dispatch(customer, 'POST', `${imports}/${batch.batchId}/commit`, { orgId, previewRevision: revision });
+    const firstReceipt = await confirm(firstImport.body);
+    assert.equal(firstReceipt.status, 200);
+    assert.equal(firstReceipt.body.inserted, 1);
+    assert.deepEqual(await confirm(firstImport.body), firstReceipt);
+    const stale = await confirm(competingImport.body);
+    assert.equal(stale.status, 409);
+    assert.equal(stale.body.error.code, 'IMPORT_STALE_BASELINE');
+    const refreshed = await dispatch(customer, 'POST', `${imports}/${competingImport.body.batchId}/repreview`, {
+      orgId, previewRevision: competingImport.body.previewRevision
+    });
+    assert.equal(refreshed.status, 200);
+    assert.equal(refreshed.body.preview[0].baseQuantity, '1000.0000000000000001');
+    const correctionReceipt = await confirm(competingImport.body, refreshed.body.previewRevision);
+    assert.equal(correctionReceipt.status, 200);
+    assert.equal(correctionReceipt.body.corrected, 1);
     let evidenceReference;
     if (scannerDatabase) {
       assert.equal(new URL(scannerUrl).pathname, '/carbon_test');

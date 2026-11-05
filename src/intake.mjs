@@ -17,6 +17,7 @@ const eventFields = `id, case_id AS "caseId", actor_id AS "actorId", action, rea
 const evidenceFields = `id, case_id AS "caseId", org_id AS "orgId", registered_by AS "registeredBy",
   title, source_description AS "sourceDescription", created_at AS "createdAt"`;
 const catalogFields = ['industryCode', 'industryName', 'title', 'purpose', 'recipient'];
+const activityTemplate = 'activity-csv-v1';
 
 function accessDenied() {
   return new CarbonError(403, 'ACCESS_DENIED', '你没有该组织的操作权限。');
@@ -34,11 +35,12 @@ async function requireRole(tx, scope, orgId, role) {
   if (result.rows.length === 0) throw accessDenied();
 }
 
-async function readCase(tx, scope, orgId, id, customerOnly = false) {
+async function readCase(tx, scope, orgId, id, customerOnly = false, lock = false) {
   const result = await tx.query(`
     SELECT ${caseFields} FROM carbon.case_intake
     WHERE tenant_id = $1 AND org_id = $2 AND id = $3
       AND ($4::uuid IS NULL OR created_by = $4)
+    ${lock ? 'FOR NO KEY UPDATE' : ''}
   `, [scope.tenantId, orgId, id, customerOnly ? scope.actorId : null]);
   if (result.rows.length === 0) throw caseMissing();
   return result.rows[0];
@@ -55,6 +57,54 @@ function requireEditableCase(task, message) {
   if (task.status !== 'draft' && task.status !== 'returned') {
     throw new CarbonError(409, 'CASE_CONFLICT', message);
   }
+}
+
+function importMissing() {
+  return new CarbonError(404, 'IMPORT_NOT_FOUND', '未找到可访问的导入批次。');
+}
+
+async function readImport(tx, [tenantId, orgId, caseId], batchId) {
+  const {rows} = await tx.query(`
+    SELECT preview.batch_id AS "batchId", preview.revision AS "previewRevision",
+      preview.status, preview.summary, preview.issues, preview.preview,
+      CASE WHEN receipt.batch_id IS NOT NULL THEN jsonb_build_object(
+        'batchId', receipt.batch_id, 'previewRevision', receipt.preview_revision, 'inserted', receipt.inserted,
+        'corrected', receipt.corrected, 'unchanged', receipt.unchanged, 'committedAt', receipt.committed_at
+      ) END AS receipt
+    FROM carbon.ingestion_preview AS preview
+    LEFT JOIN carbon.ingestion_commit AS receipt USING (tenant_id, org_id, case_id, batch_id)
+    WHERE preview.tenant_id = $1 AND preview.org_id = $2 AND preview.case_id = $3 AND preview.batch_id = $4
+    ORDER BY preview.revision DESC LIMIT 1
+  `, [tenantId, orgId, caseId, batchId]);
+  if (!rows.length) throw importMissing();
+  const {receipt, ...snapshot} = rows[0];
+  if (receipt) snapshot.receipt = {...receipt, committedAt: new Date(receipt.committedAt).toISOString()};
+  return snapshot;
+}
+
+async function appendImportPreview(tx, key, scope, batchId, previewRevision, csv) {
+  const {status, summary, issues, preview} = previewActivityCsv(csv);
+  const periods = [...new Set(preview.map(item => `${item.period}-01`))];
+  const {rows} = await tx.query(`
+    SELECT DISTINCT ON (period, source) to_char(period, 'YYYY-MM') AS period,
+      source, revision, quantity::text AS quantity
+    FROM carbon.activity_record_revision
+    WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND period = ANY($4::date[])
+    ORDER BY period, source, revision DESC
+  `, [...key, periods]);
+  const baselines = new Map(rows.map(item => [`${item.period}:${item.source}`, item]));
+  const classified = preview.map(item => {
+    const baseline = baselines.get(`${item.period}:${item.source}`);
+    const action = baseline ? (baseline.quantity === item.quantity ? 'unchanged' : 'correct') : 'insert';
+    return {...item, action, baseRevision: baseline?.revision ?? null, baseQuantity: baseline?.quantity ?? null};
+  });
+  await tx.query(`
+    INSERT INTO carbon.ingestion_preview
+      (tenant_id, org_id, case_id, batch_id, revision, status, summary, issues, preview, created_by, request_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+  `, [...key, batchId, previewRevision, status, JSON.stringify(summary), JSON.stringify(issues),
+    JSON.stringify(classified), scope.actorId, scope.requestId]);
+  return {batchId, previewRevision, status, summary, issues, preview: classified};
 }
 
 async function transition(tx, scope, orgId, id, revision, before, after, customerOnly, {reason = null, correctionNote, evidenceIds} = {}) {
@@ -108,6 +158,64 @@ export function createIntakeService(database, quarantine) {
         const task = await readVisibleCase(tx, scope, orgId, caseId, true);
         requireEditableCase(task, '任务当前不能预检活动数据，请刷新后查看状态。');
         return previewActivityCsv(csv);
+      });
+    },
+
+    saveActivityImport(scope, orgId, caseId, csv) {
+      return inWorkspace(scope, async tx => {
+        await requireRole(tx, scope, orgId, 'customer');
+        const task = await readCase(tx, scope, orgId, caseId, true, true);
+        const key = [scope.tenantId, orgId, caseId];
+        const sha256 = createHash('sha256').update(csv).digest('hex');
+        const {rows} = await tx.query(`
+          SELECT id FROM carbon.ingestion_batch
+          WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND template_version = $4 AND source_sha256 = $5
+        `, [...key, activityTemplate, sha256]);
+        if (rows.length) return readImport(tx, key, rows[0].id);
+        requireEditableCase(task, '任务当前不能保存导入批次。');
+        const batchId = randomUUID();
+        await tx.query(`
+          INSERT INTO carbon.ingestion_batch
+            (tenant_id, org_id, case_id, id, source_sha256, template_version, source_csv, created_by, request_id)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `, [...key, batchId, sha256, activityTemplate, csv, scope.actorId, scope.requestId]);
+        return appendImportPreview(tx, key, scope, batchId, 1, csv);
+      });
+    },
+
+    readActivityImport(scope, orgId, caseId, batchId) {
+      return inWorkspace(scope, async tx => {
+        await readVisibleCase(tx, scope, orgId, caseId, true);
+        return readImport(tx, [scope.tenantId, orgId, caseId], batchId);
+      });
+    },
+
+    repreviewActivityImport(scope, orgId, caseId, batchId, previewRevision) {
+      return inWorkspace(scope, async tx => {
+        await requireRole(tx, scope, orgId, 'customer');
+        const task = await readCase(tx, scope, orgId, caseId, true, true);
+        const key = [scope.tenantId, orgId, caseId];
+        const previous = await readImport(tx, key, batchId);
+        requireEditableCase(task, '任务当前不能重新预检导入批次。');
+        if (previous.receipt || previous.previewRevision !== previewRevision) {
+          throw new CarbonError(409, 'IMPORT_STALE_PREVIEW', '预览已变化或完成入账，请刷新后查看。');
+        }
+        const {rows} = await tx.query(`
+          SELECT source_csv FROM carbon.ingestion_batch
+          WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND id = $4
+        `, [...key, batchId]);
+        return appendImportPreview(tx, key, scope, batchId, previewRevision + 1, rows[0].source_csv);
+      });
+    },
+
+    commitActivityImport(scope, orgId, caseId, batchId, previewRevision) {
+      return inWorkspace(scope, async tx => {
+        await requireRole(tx, scope, orgId, 'customer');
+        const {rows} = await tx.query(`
+          SELECT preview_revision AS "previewRevision", inserted, corrected, unchanged, committed_at AS "committedAt"
+          FROM carbon.commit_activity_import($1, $2, $3, $4)
+        `, [orgId, caseId, batchId, previewRevision]);
+        return {batchId, ...rows[0], committedAt: new Date(rows[0].committedAt).toISOString()};
       });
     },
 

@@ -14,6 +14,9 @@ const routes = {
   revisionEvidence: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/evidence$/,
   evidenceFile: /^\/v1\/customer\/cases\/([^/]+)\/evidence\/([^/]+)\/file$/,
   activityPreview: /^\/v1\/customer\/cases\/([^/]+)\/imports\/preview$/,
+  activityImports: /^\/v1\/customer\/cases\/([^/]+)\/imports$/,
+  activityImport: /^\/v1\/customer\/cases\/([^/]+)\/imports\/([^/]+)$/,
+  activityImportAction: /^\/v1\/customer\/cases\/([^/]+)\/imports\/([^/]+)\/(repreview|commit)$/,
   submit: /^\/v1\/customer\/cases\/([^/]+)\/submit$/,
   resubmit: /^\/v1\/customer\/cases\/([^/]+)\/resubmit$/,
   review: /^\/v1\/professional\/cases\/([^/]+)\/review$/,
@@ -142,6 +145,19 @@ function errorResponse(error) {
   if (error?.code === '23514' && error.constraint === 'submission_evidence_available') {
     return {status: 409, body: {error: {code: 'EVIDENCE_UNAVAILABLE', message: '所选材料无法用于本次提交，请检查材料后重试。'}}};
   }
+  if (error?.code === '23514') {
+    const importErrors = {
+      activity_import_not_found: [404, 'IMPORT_NOT_FOUND', '未找到可访问的导入批次。'],
+      activity_import_case_conflict: [409, 'CASE_CONFLICT', '任务当前不能确认导入。'],
+      activity_import_stale_preview: [409, 'IMPORT_STALE_PREVIEW', '预览已变化，请刷新后查看。'],
+      activity_import_stale_baseline: [409, 'IMPORT_STALE_BASELINE', '活动数据已变化，请重新预检后再确认。'],
+      activity_import_blocked: [409, 'IMPORT_BLOCKED', '导入存在阻断问题，请修正后保存新批次。']
+    };
+    if (Object.hasOwn(importErrors, error.constraint)) {
+      const [status, code, message] = importErrors[error.constraint];
+      return {status, body: {error: {code, message}}};
+    }
+  }
   switch (error?.code) {
     case '42501':
       return {status: 403, body: {error: {code: 'ACCESS_DENIED', message: '你没有该组织的操作权限。'}}};
@@ -180,14 +196,27 @@ export function createCarbonApi(database, {quarantine} = {}) {
           }
           queryFields(query, []);
           const activityPreview = routes.activityPreview.exec(path);
-          if (activityPreview) {
+          const activityImports = routes.activityImports.exec(path);
+          if (activityPreview || activityImports) {
             const input = commandBody(request.body, ['orgId', 'csv']);
             if (typeof input.csv !== 'string') badRequest('请提供 CSV 文本。');
             if (Buffer.byteLength(input.csv, 'utf8') > 8192) {
               fail(413, 'IMPORT_TOO_LARGE', 'CSV 文本不能超过 8192 字节。');
             }
-            return {status: 200, body: await intake.previewActivity(scope,
-              uuid(input.orgId, '组织'), uuid(activityPreview[1], '任务'), input.csv)};
+            if (activityImports && (input.csv.length === 0 || input.csv.includes('\u0000'))) {
+              badRequest('请提供非空且不含空字符的 CSV 文本。');
+            }
+            const read = activityPreview ? intake.previewActivity : intake.saveActivityImport;
+            return {status: 200, body: await read(scope,
+              uuid(input.orgId, '组织'), uuid((activityPreview ?? activityImports)[1], '任务'), input.csv)};
+          }
+          const activityImportAction = routes.activityImportAction.exec(path);
+          if (activityImportAction) {
+            const input = commandBody(request.body, ['orgId', 'previewRevision']);
+            const [, caseId, batchId, action] = activityImportAction;
+            const run = action === 'commit' ? intake.commitActivityImport : intake.repreviewActivityImport;
+            return {status: 200, body: await run(scope,
+              uuid(input.orgId, '组织'), uuid(caseId, '任务'), uuid(batchId, '批次'), revision(input.previewRevision))};
           }
           if (path === '/v1/customer/cases') {
             const input = commandBody(request.body, ['orgId', 'scenarioReleaseId', 'purpose']);
@@ -229,6 +258,12 @@ export function createCarbonApi(database, {quarantine} = {}) {
         }
 
         if (method === 'GET') {
+          const activityImport = routes.activityImport.exec(path);
+          if (activityImport) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.readActivityImport(scope,
+              uuid(query.get('orgId'), '组织'), uuid(activityImport[1], '任务'), uuid(activityImport[2], '批次'))};
+          }
           if (path === '/v1/customer/scenarios') {
             queryFields(query, ['orgId']);
             return {status: 200, body: await intake.listScenarios(scope, uuid(query.get('orgId'), '组织'))};

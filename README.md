@@ -47,6 +47,10 @@ npm test
 | 客户 | `POST /v1/customer/cases/:id/evidence` | `orgId, title, sourceDescription`，本人草稿或退回任务的待补文件登记 |
 | 客户 | `POST /v1/customer/cases/:id/evidence/:evidenceId/file` | 查询参数 `orgId`，原始 PDF 或 PNG 字节，最多 5 MiB。配置隔离区后返回待检查接收记录 |
 | 客户 | `POST /v1/customer/cases/:id/imports/preview` | `orgId, csv`，预检用电和天然气 CSV，返回行列问题和标准数量，无活动记录写入 |
+| 客户 | `POST /v1/customer/cases/:id/imports` | `orgId, csv`，保存任务内的导入批次和预览修订 |
+| 客户 | `GET /v1/customer/cases/:id/imports/:batchId` | `orgId`，查最新预览和已生成的入账回执 |
+| 客户 | `POST /v1/customer/cases/:id/imports/:batchId/repreview` | `orgId, previewRevision`，用冻结的源文件重新生成预览 |
+| 客户 | `POST /v1/customer/cases/:id/imports/:batchId/commit` | `orgId, previewRevision`，整批确认入账，重复确认返回原回执 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/evidence` | `orgId`，返回有权查看的材料清单 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/revisions/:revision/evidence` | `orgId`，返回已提交修订所引用的材料和文件摘要 |
 | 专业复核人 | `GET /v1/professional/cases/:id` | 查询参数 `orgId` |

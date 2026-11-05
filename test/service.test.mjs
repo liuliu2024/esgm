@@ -85,6 +85,39 @@ test('activity precheck does not change audit and denies customers outside the c
   assert.deepEqual(await history(caseId), original);
 });
 
+test('saved imports stay scoped through read, repreview, confirmation and revocation', async () => {
+  const owner = id(16);
+  await db.admin.transaction(tx => tx.query('INSERT INTO carbon.org_grant VALUES ($1, $2, $3, $4)',
+    [tenant, org, owner, 'customer']));
+  const created = await send('POST', createPath, owner, 'ledger-create', {
+    orgId: org, scenarioReleaseId: release, purpose: '台账权限测试'
+  });
+  assert.equal(created.status, 201);
+  const imports = `${createPath}/${created.body.id}/imports`;
+  const csv = 'period,source,quantity,unit\n2026-01,electricity,0,kWh';
+  const saved = await send('POST', imports, owner, 'ledger-save', {orgId: org, csv});
+  assert.equal(saved.status, 200);
+  const batch = `${imports}/${saved.body.batchId}`;
+  for (const [actor, workspace, organization, status, code] of [
+    [peer, tenant, org, 404, 'CASE_NOT_FOUND'],
+    [owner, tenant, siblingOrg, 403, 'ACCESS_DENIED'],
+    [foreignCustomer, foreignTenant, foreignOrg, 404, 'CASE_NOT_FOUND']
+  ]) {
+    expectError(await send('POST', imports, actor, 'ledger-deny-save', {orgId: organization, csv}, workspace), status, code);
+    expectError(await send('GET', `${batch}?orgId=${organization}`, actor, 'ledger-deny-read', undefined, workspace), status, code);
+    for (const action of ['repreview', 'commit']) {
+      const errorCode = action === 'commit' && status === 404 ? 'IMPORT_NOT_FOUND' : code;
+      expectError(await send('POST', `${batch}/${action}`, actor, 'ledger-deny-action',
+        {orgId: organization, previewRevision: 1}, workspace), status, errorCode);
+    }
+  }
+  await db.admin.transaction(tx => tx.query(`DELETE FROM carbon.org_grant
+    WHERE tenant_id = $1 AND org_id = $2 AND actor_id = $3 AND role = 'customer'`, [tenant, org, owner]));
+  expectError(await send('GET', `${batch}?orgId=${org}`, owner, 'ledger-revoked-read'), 403, 'ACCESS_DENIED');
+  expectError(await send('POST', `${batch}/commit`, owner, 'ledger-revoked-commit', {orgId: org, previewRevision: 1}),
+    403, 'ACCESS_DENIED');
+});
+
 function expectError(response, status, code) {
   assert.equal(response.status, status);
   assert.deepEqual(Object.keys(response.body), ['error']);
@@ -197,3 +230,4 @@ test('rejects a spoofed body role and requires trusted context', async () => {
     'x-actor-id': administrator, 'x-tenant-id': tenant, 'x-role': 'admin'
   }}), 401, 'AUTHENTICATION_REQUIRED');
 });
+
