@@ -44,3 +44,5 @@
 `GET /v1/customer/cases/:id/activities?orgId=…&period=YYYY-MM&source=electricity|natural_gas` 读取该任务指定活动的最新已确认修订。可选 `revision` 为正整数，读取该旧版。企业本人及有效组织授权检查沿用任务详情。活动或指定版本不存在时返回 404 `ACTIVITY_NOT_FOUND`。未确认预检不参与查询。
 
 响应为 `{period,source,revision,quantity,unit,lineage}`。标准数量为精确十进制字符串；`lineage` 含 `batchId,previewRevision,sourceRow,sourceType,conversionVersion,originalQuantity,originalUnit`。不返回 CSV 全文或其他任务信息。冻结报告的来源可直接使用 `period,source,activityRevision` 查询原版。验收验证更正前后按版本查询、真实零、无已入账数据、请求边界、他人和撤权后的拒绝。此接口无写入、无核算适用判断。
+
+企业工作台的当前及历史演示稿在每条活动下提供“查看来源”。打开后才读取该行固定的活动修订，显示原始数量、标准数量、文件行和导入预览版。活动台账更正后，已有稿件的来源仍显示冻结时的数据。

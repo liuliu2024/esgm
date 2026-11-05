@@ -142,6 +142,49 @@ function calculationLine(item) {
   return `${label} · ${item.quantity} ${item.unit} · ${item.emissionsKgCO2e} kgCO₂e`;
 }
 
+function reportActivitySource(caseId, item) {
+  const details = document.createElement('details');
+  details.className = 'report-source';
+  const toggle = document.createElement('summary');
+  toggle.textContent = '查看来源';
+  toggle.setAttribute('aria-label', `查看来源 ${item.period} ${sourceLabels[item.source]}`);
+  const state = document.createElement('p');
+  state.setAttribute('role', 'status');
+  const error = document.createElement('p');
+  error.setAttribute('role', 'alert');
+  const values = document.createElement('div');
+  values.className = 'report-source-values';
+  values.hidden = true;
+  details.append(toggle, state, error, values);
+
+  let loading = false;
+  details.addEventListener('toggle', async () => {
+    if (!details.open || !values.hidden || loading || !details.isConnected) return;
+    loading = true;
+    state.textContent = '正在读取活动来源…';
+    error.textContent = '';
+    try {
+      const query = new URLSearchParams({orgId: context.orgId, period: item.period, source: item.source,
+        revision: item.lineage.activityRevision});
+      const activity = await request(`${base}/${caseId}/activities?${query}`);
+      if (!details.isConnected || selected?.id !== caseId) return;
+      const {lineage} = activity;
+      const amount = document.createElement('p');
+      amount.textContent = `原始数量 ${lineage.originalQuantity} ${lineage.originalUnit} · 标准数量 ${activity.quantity} ${activity.unit}`;
+      const source = document.createElement('p');
+      source.textContent = `源文件第 ${lineage.sourceRow} 行 · 导入预览第 ${lineage.previewRevision} 版 · 活动第 ${activity.revision} 版`;
+      values.replaceChildren(amount, source);
+      values.hidden = false;
+    } catch (failure) {
+      if (details.isConnected && selected?.id === caseId) error.textContent = failure.message;
+    } finally {
+      state.textContent = '';
+      loading = false;
+    }
+  });
+  return details;
+}
+
 function renderReport(container, draft, historical = false) {
   container.hidden = !draft;
   container.replaceChildren();
@@ -154,7 +197,13 @@ function renderReport(container, draft, historical = false) {
   summary.textContent = `${draft.report.scope.from} 至 ${draft.report.scope.to} · ${draft.report.summary.totalKgCO2e} kgCO₂e（${draft.report.summary.totalTCO2e} tCO₂e）`;
   const rows = document.createElement('ul');
   rows.className = 'history-list';
-  setRows(rows, draft.report.items.map(item => `${calculationLine(item)} · 源文件第 ${item.lineage.sourceRow} 行 · 活动第 ${item.lineage.activityRevision} 版 · 因子 v${item.factor.version}`));
+  for (const item of draft.report.items) {
+    const row = document.createElement('li');
+    const label = document.createElement('p');
+    label.textContent = `${calculationLine(item)} · 源文件第 ${item.lineage.sourceRow} 行 · 活动第 ${item.lineage.activityRevision} 版 · 因子 v${item.factor.version}`;
+    row.append(label, reportActivitySource(draft.caseId, item));
+    rows.append(row);
+  }
   container.append(heading, watermark, summary, rows);
 }
 
