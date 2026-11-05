@@ -49,7 +49,7 @@ async function draft(requestId) {
   assert.equal(created.status, 201);
   assert.deepEqual(created.body, {
     id: created.body.id, orgId: org, scenarioReleaseId: release, createdBy: customer,
-    purpose: '组织碳盘查受理', status: 'draft', revision: 1, returnReason: null
+    purpose: '组织碳盘查受理', status: 'draft', revision: 1, returnReason: null, correctionNote: null
   });
   return created.body.id;
 }

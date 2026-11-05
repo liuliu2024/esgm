@@ -9,7 +9,10 @@ export class CarbonError extends Error {
 }
 
 const caseFields = `id, org_id AS "orgId", scenario_release_id AS "scenarioReleaseId",
-  created_by AS "createdBy", purpose, status, revision, return_reason AS "returnReason"`;
+  created_by AS "createdBy", purpose, status, revision, return_reason AS "returnReason",
+  correction_note AS "correctionNote"`;
+const eventFields = `id, case_id AS "caseId", actor_id AS "actorId", action, reason, revision,
+  correction_note AS "correctionNote", request_id AS "requestId", created_at AS "createdAt"`;
 
 function accessDenied() {
   return new CarbonError(403, 'ACCESS_DENIED', '你没有该组织的操作权限。');
@@ -37,7 +40,14 @@ async function readCase(tx, scope, orgId, id, customerOnly = false) {
   return result.rows[0];
 }
 
-async function transition(tx, scope, orgId, id, revision, before, after, customerOnly, reason = null) {
+async function readVisibleCase(tx, scope, orgId, id, customerOnly) {
+  await requireRole(tx, scope, orgId, customerOnly ? 'customer' : 'reviewer');
+  const result = await readCase(tx, scope, orgId, id, customerOnly);
+  if (!customerOnly && result.status === 'draft') throw caseMissing();
+  return result;
+}
+
+async function transition(tx, scope, orgId, id, revision, before, after, customerOnly, {reason = null, correctionNote} = {}) {
   const current = await readCase(tx, scope, orgId, id, customerOnly);
   if (!customerOnly && current.createdBy === scope.actorId) {
     throw new CarbonError(403, 'SELF_REVIEW_FORBIDDEN', '发起人不能复核自己的任务。');
@@ -45,16 +55,26 @@ async function transition(tx, scope, orgId, id, revision, before, after, custome
   if (current.revision !== revision || current.status !== before) {
     throw new CarbonError(409, 'CASE_CONFLICT', '任务状态或版本已变化，请刷新后重试。');
   }
+  const params = [scope.tenantId, orgId, id, revision, before, after, customerOnly ? scope.actorId : null, reason];
+  const correctionAssignment = correctionNote === undefined ? '' : ', correction_note = $9';
+  if (correctionNote !== undefined) params.push(correctionNote);
   const result = await tx.query(`
-    UPDATE carbon.case_intake SET status = $6, revision = revision + 1, return_reason = $8
+    UPDATE carbon.case_intake SET status = $6, revision = revision + 1, return_reason = $8${correctionAssignment}
     WHERE tenant_id = $1 AND org_id = $2 AND id = $3 AND revision = $4 AND status = $5
       AND ($7::uuid IS NULL OR created_by = $7)
     RETURNING ${caseFields}
-  `, [scope.tenantId, orgId, id, revision, before, after, customerOnly ? scope.actorId : null, reason]);
+  `, params);
   if (result.rows.length === 0) {
     throw new CarbonError(409, 'CASE_CONFLICT', '任务状态或版本已变化，请刷新后重试。');
   }
   return result.rows[0];
+}
+
+function nextAction(item, scope, customerOnly) {
+  if (customerOnly && item.status === 'draft') return 'submit';
+  if (customerOnly && item.status === 'returned') return 'resubmit';
+  if (!customerOnly && item.status === 'submitted' && item.createdBy !== scope.actorId) return 'review';
+  return 'none';
 }
 
 export function createIntakeService(database) {
@@ -90,11 +110,41 @@ export function createIntakeService(database) {
     },
 
     read(scope, orgId, id, customerOnly) {
+      return inWorkspace(scope, tx => readVisibleCase(tx, scope, orgId, id, customerOnly));
+    },
+
+    listCases(scope, orgId, customerOnly, limit, cursor) {
       return inWorkspace(scope, async tx => {
         await requireRole(tx, scope, orgId, customerOnly ? 'customer' : 'reviewer');
-        const result = await readCase(tx, scope, orgId, id, customerOnly);
-        if (!customerOnly && result.status === 'draft') throw caseMissing();
-        return result;
+        const result = await tx.query(`
+          SELECT * FROM (
+            SELECT ${caseFields},
+              CASE WHEN $3::boolean OR (status = 'submitted' AND created_by <> $4) THEN 0 ELSE 1 END AS priority
+            FROM carbon.case_intake
+            WHERE tenant_id = $1 AND org_id = $2
+              AND (($3::boolean AND created_by = $4) OR (NOT $3::boolean AND status <> 'draft'))
+          ) AS visible_cases
+          WHERE $6::uuid IS NULL OR (priority, id) > ($5::integer, $6::uuid)
+          ORDER BY priority, id LIMIT $7
+        `, [scope.tenantId, orgId, customerOnly, scope.actorId, cursor?.priority ?? null, cursor?.id ?? null, limit + 1]);
+        const page = result.rows.slice(0, limit);
+        const last = page.at(-1);
+        return {
+          cases: page.map(({priority, ...item}) => ({...item, nextAction: nextAction(item, scope, customerOnly)})),
+          nextCursor: result.rows.length > limit ? `${last.priority}:${last.id}` : null
+        };
+      });
+    },
+
+    history(scope, orgId, id, customerOnly) {
+      return inWorkspace(scope, async tx => {
+        await readVisibleCase(tx, scope, orgId, id, customerOnly);
+        const result = await tx.query(`
+          SELECT ${eventFields} FROM carbon.audit_event
+          WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3
+          ORDER BY revision, id
+        `, [scope.tenantId, orgId, id]);
+        return {events: result.rows};
       });
     },
 
@@ -105,10 +155,17 @@ export function createIntakeService(database) {
       });
     },
 
+    resubmit(scope, orgId, id, revision, correctionNote) {
+      return inWorkspace(scope, async tx => {
+        await requireRole(tx, scope, orgId, 'customer');
+        return transition(tx, scope, orgId, id, revision, 'returned', 'submitted', true, {correctionNote});
+      });
+    },
+
     review(scope, orgId, id, revision, decision, reason) {
       return inWorkspace(scope, async tx => {
         await requireRole(tx, scope, orgId, 'reviewer');
-        return transition(tx, scope, orgId, id, revision, 'submitted', decision, false, reason);
+        return transition(tx, scope, orgId, id, revision, 'submitted', decision, false, {reason});
       });
     },
 
@@ -131,8 +188,7 @@ export function createIntakeService(database) {
       return inWorkspace(scope, async tx => {
         await requireRole(tx, scope, orgId, 'admin');
         const result = await tx.query(`
-          SELECT id, case_id AS "caseId", actor_id AS "actorId", action, reason, revision,
-                 request_id AS "requestId", created_at AS "createdAt"
+          SELECT ${eventFields}
           FROM carbon.audit_event WHERE tenant_id = $1 AND org_id = $2
           ORDER BY created_at DESC, id DESC LIMIT $3 OFFSET $4
         `, [scope.tenantId, orgId, limit + 1, offset]);

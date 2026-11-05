@@ -2,8 +2,11 @@ import { CarbonError, createIntakeService } from './intake.mjs';
 
 const uuidPattern = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const routes = {
+  cases: /^\/v1\/(customer|professional)\/cases$/,
   case: /^\/v1\/(customer|professional)\/cases\/([^/]+)$/,
+  history: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/history$/,
   submit: /^\/v1\/customer\/cases\/([^/]+)\/submit$/,
+  resubmit: /^\/v1\/customer\/cases\/([^/]+)\/resubmit$/,
   review: /^\/v1\/professional\/cases\/([^/]+)\/review$/,
   administration: /^\/v1\/admin\/organizations\/([^/]+)\/(grants|audit)$/
 };
@@ -68,13 +71,25 @@ function queryFields(params, fields) {
 
 function paging(params) {
   queryFields(params, ['limit', 'offset']);
-  const limit = params.get('limit') ?? '50';
   const offset = params.get('offset') ?? '0';
-  if (!/^\d{1,3}$/.test(limit) || Number(limit) < 1 || Number(limit) > 100
-    || !/^\d{1,9}$/.test(offset)) {
+  if (!/^\d{1,9}$/.test(offset)) badRequest('分页参数无效。');
+  return [pageLimit(params), Number(offset)];
+}
+
+function pageLimit(params) {
+  const limit = params.get('limit') ?? '50';
+  if (!/^\d{1,3}$/.test(limit) || Number(limit) < 1 || Number(limit) > 100) {
     badRequest('分页参数无效。每页最多 100 条。');
   }
-  return [Number(limit), Number(offset)];
+  return Number(limit);
+}
+
+function caseCursor(params, customerOnly) {
+  const cursor = params.get('cursor');
+  if (cursor === null) return null;
+  const match = /^([01]):([^:]+)$/.exec(cursor);
+  if (!match || (customerOnly && match[1] !== '0')) badRequest('续页参数无效。');
+  return {priority: Number(match[1]), id: uuid(match[2], '续页任务')};
 }
 
 function pathAndQuery(path) {
@@ -131,6 +146,13 @@ export function createCarbonApi(database) {
             return {status: 200, body: await intake.submit(scope,
               uuid(input.orgId, '组织'), uuid(submit[1], '任务'), revision(input.revision))};
           }
+          const resubmit = routes.resubmit.exec(path);
+          if (resubmit) {
+            const input = commandBody(request.body, ['orgId', 'revision', 'correctionNote']);
+            return {status: 200, body: await intake.resubmit(scope,
+              uuid(input.orgId, '组织'), uuid(resubmit[1], '任务'), revision(input.revision),
+              requiredText(input.correctionNote, '补正说明'))};
+          }
           const review = routes.review.exec(path);
           if (review) {
             const input = commandBody(request.body, ['orgId', 'revision', 'decision'], ['reason']);
@@ -143,11 +165,24 @@ export function createCarbonApi(database) {
         }
 
         if (method === 'GET') {
+          const list = routes.cases.exec(path);
+          if (list) {
+            queryFields(query, ['orgId', 'limit', 'cursor']);
+            const customerOnly = list[1] === 'customer';
+            return {status: 200, body: await intake.listCases(scope,
+              uuid(query.get('orgId'), '组织'), customerOnly, pageLimit(query), caseCursor(query, customerOnly))};
+          }
           const detail = routes.case.exec(path);
           if (detail) {
             queryFields(query, ['orgId']);
             return {status: 200, body: await intake.read(scope,
               uuid(query.get('orgId'), '组织'), uuid(detail[2], '任务'), detail[1] === 'customer')};
+          }
+          const history = routes.history.exec(path);
+          if (history) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.history(scope,
+              uuid(query.get('orgId'), '组织'), uuid(history[2], '任务'), history[1] === 'customer')};
           }
           const administration = routes.administration.exec(path);
           if (administration) {

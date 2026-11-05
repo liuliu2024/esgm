@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
+import { copyFile, mkdtemp, rmdir, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, sep } from 'node:path';
 import { after, before, test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { createEmbeddedDatabase } from '../infra/embedded.mjs';
 import { migrate } from '../infra/migrations.mjs';
 
@@ -7,6 +11,7 @@ const id = value => `00000000-0000-4000-8000-${String(value).padStart(12, '0')}`
 const tenant = id(1), otherTenant = id(2);
 const org = id(11), siblingOrg = id(12), otherOrg = id(13);
 const customer = id(21), reviewer = id(22), admin = id(23), siblingCustomer = id(24);
+const externalCustomer = id(25), peer = id(26), unauthorized = id(27);
 const release = id(31), otherRelease = id(32);
 
 let db;
@@ -15,7 +20,11 @@ let applied;
 before(async () => {
   db = await createEmbeddedDatabase();
   applied = await migrate(db.admin);
-  await db.admin.transaction(async client => {
+  await seed(db);
+});
+
+async function seed(database) {
+  await database.admin.transaction(async client => {
     await client.query('INSERT INTO carbon.workspace (id, name) VALUES ($1, $2), ($3, $4)',
       [tenant, 'Primary', otherTenant, 'Other']);
     await client.query(`INSERT INTO carbon.organization (tenant_id, id, name)
@@ -23,18 +32,20 @@ before(async () => {
       [tenant, org, siblingOrg, otherTenant, otherOrg]);
     await client.query(`INSERT INTO carbon.org_grant (tenant_id, org_id, actor_id, role)
       VALUES ($1, $2, $3, 'customer'), ($1, $2, $3, 'reviewer'), ($1, $2, $4, 'reviewer'),
-      ($1, $2, $5, 'admin'), ($1, $6, $7, 'customer')`,
-      [tenant, org, customer, reviewer, admin, siblingOrg, siblingCustomer]);
+      ($1, $2, $5, 'admin'), ($1, $6, $7, 'customer'), ($8, $9, $10, 'customer'),
+      ($1, $2, $11, 'customer')`,
+      [tenant, org, customer, reviewer, admin, siblingOrg, siblingCustomer, otherTenant, otherOrg,
+        externalCustomer, peer]);
     await client.query(`INSERT INTO carbon.scenario_release (tenant_id, id, code, version, manifest)
       VALUES ($1, $2, 'intake', 1, '{}'), ($3, $4, 'intake', 1, '{}')`,
       [tenant, release, otherTenant, otherRelease]);
   });
-});
+}
 
 after(async () => { await db?.close(); });
 
-function asActor(actor, callback, workspace = tenant, requestId = 'database-test') {
-  return db.runtime.transaction(async client => {
+function asActor(actor, callback, workspace = tenant, requestId = 'database-test', database = db) {
+  return database.runtime.transaction(async client => {
     await client.query(`SELECT set_config('carbon.tenant_id', $1, true),
       set_config('carbon.actor_id', $2, true), set_config('carbon.request_id', $3, true)`,
       [workspace, actor, requestId]);
@@ -56,11 +67,91 @@ function transition(client, caseId, expectedRevision, status) {
 }
 
 test('empty database applies migration once and replay preserves its ledger', async () => {
-  assert.ok(applied.includes('001_core.sql'));
+  assert.deepEqual(applied, ['001_core.sql', '002_corrections.sql']);
   assert.deepEqual(await migrate(db.admin), []);
   const { rows } = await db.admin.transaction(client => client.query(
     'SELECT name FROM carbon_migrations.applied ORDER BY name'));
   assert.deepEqual(rows.map(row => row.name), applied);
+});
+
+test('upgrade a returned 001 intake and preserve two corrections and their review history', async t => {
+  const legacy = await createEmbeddedDatabase();
+  t.after(() => legacy.close());
+  const directory = await mkdtemp(join(tmpdir(), 'carbon-migration-test-'));
+  const legacyFile = join(directory, '001_core.sql');
+  t.after(async () => {
+    await unlink(legacyFile);
+    await rmdir(directory);
+  });
+  await copyFile(new URL('../migrations/001_core.sql', import.meta.url), legacyFile);
+  assert.deepEqual(await migrate(legacy.admin, pathToFileURL(directory + sep)), ['001_core.sql']);
+  await seed(legacy);
+
+  const caseId = id(151);
+  const originalReason = 'Supplier evidence is missing';
+  const secondReason = 'Reporting year is unclear';
+  const firstNote = 'Attached supplier evidence';
+  const secondNote = 'Confirmed the reporting year';
+  const act = (actor, callback, workspace = tenant) => asActor(actor, callback, workspace, 'migration-test', legacy);
+  const readHistory = client => client.query(`SELECT action, revision, reason, correction_note
+    FROM carbon.audit_event WHERE case_id = $1 ORDER BY revision`, [caseId]);
+  const returnIntake = (client, revision, reason) => client.query(`UPDATE carbon.case_intake
+    SET status = 'returned', return_reason = $2, revision = revision + 1
+    WHERE id = $1 AND revision = $3 RETURNING status, revision`, [caseId, reason, revision]);
+  const resubmit = (client, revision, note) => client.query(`UPDATE carbon.case_intake
+    SET status = 'submitted', return_reason = NULL, correction_note = $2, revision = revision + 1
+    WHERE id = $1 AND revision = $3 RETURNING status, revision`, [caseId, note, revision]);
+
+  await act(customer, client => createCase(client, caseId));
+  await act(customer, client => transition(client, caseId, 1, 'submitted'));
+  const returned = await act(reviewer, client => returnIntake(client, 2, originalReason));
+  assert.deepEqual(returned.rows, [{ status: 'returned', revision: 3 }]);
+  assert.deepEqual(await migrate(legacy.admin), ['002_corrections.sql']);
+  assert.deepEqual(await migrate(legacy.admin), []);
+
+  const upgraded = await act(customer, client => client.query(`SELECT status, revision, return_reason, correction_note
+    FROM carbon.case_intake WHERE id = $1`, [caseId]));
+  assert.deepEqual(upgraded.rows, [{ status: 'returned', revision: 3, return_reason: originalReason, correction_note: null }]);
+
+  await assert.rejects(act(customer, client => resubmit(client, 3, null)), { code: '23514' });
+  const first = await act(customer, client => resubmit(client, 3, firstNote));
+  assert.deepEqual(first.rows, [{ status: 'submitted', revision: 4 }]);
+  await assert.rejects(act(reviewer, client => client.query(`UPDATE carbon.case_intake
+    SET status = 'approved', correction_note = 'Reviewer rewrite', revision = revision + 1
+    WHERE id = $1 AND revision = 4`, [caseId])), { code: '55000' });
+  const returnedAgain = await act(reviewer, client => returnIntake(client, 4, secondReason));
+  assert.deepEqual(returnedAgain.rows, [{ status: 'returned', revision: 5 }]);
+  const second = await act(customer, client => resubmit(client, 5, secondNote));
+  assert.deepEqual(second.rows, [{ status: 'submitted', revision: 6 }]);
+  const stale = await act(customer, client => resubmit(client, 5, 'Stale edit'));
+  assert.deepEqual(stale.rows, []);
+  const approved = await act(reviewer, client => transition(client, caseId, 6, 'approved'));
+  assert.deepEqual(approved.rows, [{ status: 'approved', revision: 7 }]);
+
+  const expected = [
+    { action: 'created', revision: 1, reason: null, correction_note: null },
+    { action: 'submitted', revision: 2, reason: null, correction_note: null },
+    { action: 'returned', revision: 3, reason: originalReason, correction_note: null },
+    { action: 'submitted', revision: 4, reason: null, correction_note: firstNote },
+    { action: 'returned', revision: 5, reason: secondReason, correction_note: null },
+    { action: 'submitted', revision: 6, reason: null, correction_note: secondNote },
+    { action: 'approved', revision: 7, reason: null, correction_note: null }
+  ];
+  for (const actor of [customer, reviewer, admin]) {
+    assert.deepEqual((await act(actor, readHistory)).rows, expected);
+  }
+  await assert.rejects(act(reviewer, client => client.query(`UPDATE carbon.audit_event
+    SET correction_note = 'Reviewer rewrite' WHERE case_id = $1 AND revision = 4`, [caseId])),
+  { code: '42501' });
+
+  for (const [actor, workspace] of [
+    [siblingCustomer, tenant], [peer, tenant], [unauthorized, tenant], [externalCustomer, otherTenant]
+  ]) {
+    await act(actor, async client => {
+      assert.deepEqual((await client.query('SELECT correction_note FROM carbon.case_intake WHERE id = $1', [caseId])).rows, []);
+      assert.deepEqual((await readHistory(client)).rows, []);
+    }, workspace);
+  }
 });
 
 test('runtime without transaction context cannot read or write tenant rows', async () => {
