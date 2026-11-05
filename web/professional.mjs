@@ -75,10 +75,10 @@ async function loadCase(item, focus = false) {
         title.textContent = item.title;
         source.textContent = `来源：${item.sourceDescription}`;
         row.append(title);
-        if (item.status === 'pending_file') {
+        if (item.status === 'pending_file' || item.status === 'pending_scan') {
           const status = document.createElement('span');
           status.className = 'status';
-          status.textContent = '待补文件';
+          status.textContent = item.status === 'pending_scan' ? '待检查' : '待补文件';
           row.append(' ', status);
         }
         row.append(source);

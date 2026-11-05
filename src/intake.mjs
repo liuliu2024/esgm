@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 export class CarbonError extends Error {
   constructor(status, code, message) {
@@ -14,7 +14,7 @@ const caseFields = `id, org_id AS "orgId", scenario_release_id AS "scenarioRelea
 const eventFields = `id, case_id AS "caseId", actor_id AS "actorId", action, reason, revision,
   correction_note AS "correctionNote", request_id AS "requestId", created_at AS "createdAt"`;
 const evidenceFields = `id, case_id AS "caseId", org_id AS "orgId", registered_by AS "registeredBy",
-  title, source_description AS "sourceDescription", created_at AS "createdAt", 'pending_file' AS status`;
+  title, source_description AS "sourceDescription", created_at AS "createdAt"`;
 
 function accessDenied() {
   return new CarbonError(403, 'ACCESS_DENIED', '你没有该组织的操作权限。');
@@ -49,6 +49,12 @@ async function readVisibleCase(tx, scope, orgId, id, customerOnly) {
   return result;
 }
 
+function requireEditableCase(task, message) {
+  if (task.status !== 'draft' && task.status !== 'returned') {
+    throw new CarbonError(409, 'CASE_CONFLICT', message);
+  }
+}
+
 async function transition(tx, scope, orgId, id, revision, before, after, customerOnly, {reason = null, correctionNote} = {}) {
   const current = await readCase(tx, scope, orgId, id, customerOnly);
   if (!customerOnly && current.createdBy === scope.actorId) {
@@ -79,7 +85,7 @@ function nextAction(item, scope, customerOnly) {
   return 'none';
 }
 
-export function createIntakeService(database) {
+export function createIntakeService(database, quarantine) {
   function inWorkspace(scope, command) {
     return database.transaction(async tx => {
       await tx.query(`SELECT
@@ -153,13 +159,11 @@ export function createIntakeService(database) {
     registerEvidence(scope, orgId, id, title, sourceDescription) {
       return inWorkspace(scope, async tx => {
         const task = await readVisibleCase(tx, scope, orgId, id, true);
-        if (task.status !== 'draft' && task.status !== 'returned') {
-          throw new CarbonError(409, 'CASE_CONFLICT', '任务当前不能登记材料，请刷新后查看状态。');
-        }
+        requireEditableCase(task, '任务当前不能登记材料，请刷新后查看状态。');
         const result = await tx.query(`
           INSERT INTO carbon.case_evidence (tenant_id, org_id, case_id, id, registered_by, title, source_description)
           VALUES ($1, $2, $3, $4, $5, $6, $7)
-          RETURNING ${evidenceFields}
+          RETURNING ${evidenceFields}, 'pending_file' AS status
         `, [scope.tenantId, orgId, id, randomUUID(), scope.actorId, title, sourceDescription]);
         return result.rows[0];
       });
@@ -169,11 +173,60 @@ export function createIntakeService(database) {
       return inWorkspace(scope, async tx => {
         await readVisibleCase(tx, scope, orgId, id, customerOnly);
         const result = await tx.query(`
-          SELECT ${evidenceFields} FROM carbon.case_evidence
+          SELECT ${evidenceFields},
+            CASE WHEN EXISTS (
+              SELECT 1 FROM carbon.evidence_receipt AS receipt
+              WHERE receipt.tenant_id = evidence.tenant_id
+                AND receipt.org_id = evidence.org_id
+                AND receipt.case_id = evidence.case_id
+                AND receipt.evidence_id = evidence.id
+            ) THEN 'pending_scan' ELSE 'pending_file' END AS status
+          FROM carbon.case_evidence AS evidence
           WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3
           ORDER BY created_at, id
         `, [scope.tenantId, orgId, id]);
         return {items: result.rows};
+      });
+    },
+
+    receiveEvidenceFile(scope, orgId, caseId, evidenceId, mediaType, bytes) {
+      return inWorkspace(scope, async tx => {
+        const task = await readVisibleCase(tx, scope, orgId, caseId, true);
+        requireEditableCase(task, '任务当前不能接收文件，请刷新后查看状态。');
+        const evidence = await tx.query(`
+          SELECT 1 FROM carbon.case_evidence
+          WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND id = $4
+        `, [scope.tenantId, orgId, caseId, evidenceId]);
+        if (evidence.rows.length === 0) {
+          throw new CarbonError(404, 'EVIDENCE_NOT_FOUND', '未找到该任务的材料登记。');
+        }
+        if (typeof quarantine?.write !== 'function') {
+          throw new CarbonError(503, 'QUARANTINE_UNAVAILABLE', '文件隔离区暂不可用。');
+        }
+        const id = randomUUID();
+        const sha256 = createHash('sha256').update(bytes).digest('hex');
+        let result;
+        try {
+          result = await tx.query(`
+            INSERT INTO carbon.evidence_receipt
+              (tenant_id, org_id, case_id, evidence_id, id, received_by, media_type, byte_size, sha256)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING id, org_id AS "orgId", case_id AS "caseId", evidence_id AS "evidenceId",
+              received_by AS "receivedBy", media_type AS "mediaType", byte_size AS "byteSize",
+              sha256, created_at AS "createdAt", 'pending_scan' AS status
+          `, [scope.tenantId, orgId, caseId, evidenceId, id, scope.actorId, mediaType, bytes.length, sha256]);
+        } catch (error) {
+          if (error?.code === '23505') {
+            throw new CarbonError(409, 'FILE_ALREADY_RECEIVED', '这份材料已经接收过文件。');
+          }
+          throw error;
+        }
+        try {
+          await quarantine.write(id, bytes);
+        } catch {
+          throw new CarbonError(503, 'QUARANTINE_UNAVAILABLE', '文件暂未接收，请稍后重试。');
+        }
+        return result.rows[0];
       });
     },
 

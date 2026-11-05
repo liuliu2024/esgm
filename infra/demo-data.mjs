@@ -3,7 +3,7 @@ import { createEmbeddedDatabase } from './embedded.mjs';
 import { migrate } from './migrations.mjs';
 import { createCarbonApi } from '../src/index.mjs';
 
-export async function startDemo() {
+export async function startDemo(options) {
   const db = await createEmbeddedDatabase();
   const tenantId = randomUUID();
   const orgId = randomUUID();
@@ -22,10 +22,10 @@ export async function startDemo() {
           [tenantId, orgId, actorId, role]);
       }
     });
-    const api = createCarbonApi(db.runtime);
+    const api = createCarbonApi(db.runtime, options);
     return {
       orgId, scenarioReleaseId,
-      dispatch: (role, method, path, body) => api.dispatch({ method, path, body }, {
+      dispatch: (role, method, path, body, contentType) => api.dispatch({ method, path, body, contentType }, {
         tenantId, actorId: actors[role], requestId: randomUUID()
       }),
       close: db.close

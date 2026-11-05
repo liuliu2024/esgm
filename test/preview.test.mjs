@@ -35,6 +35,17 @@ test('three preview entries use the same intake and review workflow', async () =
       orgId, title: '月度用电账单', sourceDescription: '园区供电结算记录'
     }, 201);
     assert.equal(evidence.status, 'pending_file');
+    const filePath = preview.origin + customer + `/evidence/${evidence.id}/file?orgId=${orgId}`;
+    const file = Buffer.from('%PDF-1.7\nDemo signature only\n');
+    const receive = await fetch(filePath, { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: file });
+    assert.equal(receive.status, 201);
+    const receipt = await receive.json();
+    assert.equal(receipt.status, 'pending_scan');
+    assert.equal(receipt.byteSize, file.length);
+    const oversized = await fetch(filePath, {
+      method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: Buffer.alloc(5 * 1024 * 1024 + 1)
+    });
+    assert.equal(oversized.status, 413);
     const submitted = await post(customer + '/submit', { orgId, revision: created.revision });
     const returned = await post(professional + '/review', {
       orgId, revision: submitted.revision, decision: 'returned', reason: '补充报告期间'
@@ -45,7 +56,7 @@ test('three preview entries use the same intake and review workflow', async () =
     const reviewQueue = await read(`/v1/professional/cases?orgId=${orgId}`);
     assert.equal(reviewQueue.cases[0].nextAction, 'review');
     const reviewedMaterials = await read(professional + `/evidence?orgId=${orgId}`);
-    assert.deepEqual(reviewedMaterials.items.map(item => [item.title, item.status]), [['月度用电账单', 'pending_file']]);
+    assert.deepEqual(reviewedMaterials.items.map(item => [item.title, item.status]), [['月度用电账单', 'pending_scan']]);
     const approved = await post(professional + '/review', {
       orgId, revision: resubmitted.revision, decision: 'approved'
     });

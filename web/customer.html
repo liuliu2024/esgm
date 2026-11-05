@@ -69,6 +69,16 @@
             <h3 id="evidence-heading">材料清单</h3>
             <p id="evidence-state" class="muted" role="status"></p>
             <ul id="evidence-items" class="history-list"></ul>
+            <template id="evidence-upload">
+              <form>
+                <label>选择演示文件
+                  <input type="file" accept="application/pdf,image/png,.pdf,.png" required>
+                </label>
+                <p class="muted">仅选合成测试文件。支持 PDF 或 PNG，最大 5 MiB。</p>
+                <p role="alert"></p>
+                <button type="submit">提交文件</button>
+              </form>
+            </template>
             <form id="register-evidence" hidden>
               <label for="evidence-title">材料名称</label>
               <input id="evidence-title" maxlength="200" required>

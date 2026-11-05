@@ -1,11 +1,17 @@
 import { CarbonError, createIntakeService } from './intake.mjs';
 
+export const MAX_EVIDENCE_FILE_BYTES = 5 * 1024 * 1024;
 const uuidPattern = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+const fileSignatures = new Map([
+  ['application/pdf', Buffer.from('%PDF-', 'ascii')],
+  ['image/png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])]
+]);
 const routes = {
   cases: /^\/v1\/(customer|professional)\/cases$/,
   case: /^\/v1\/(customer|professional)\/cases\/([^/]+)$/,
   history: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/history$/,
   evidence: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/evidence$/,
+  evidenceFile: /^\/v1\/customer\/cases\/([^/]+)\/evidence\/([^/]+)\/file$/,
   submit: /^\/v1\/customer\/cases\/([^/]+)\/submit$/,
   resubmit: /^\/v1\/customer\/cases\/([^/]+)\/resubmit$/,
   review: /^\/v1\/professional\/cases\/([^/]+)\/review$/,
@@ -60,6 +66,23 @@ function requiredText(value, label, maximum = 500) {
     badRequest(`请填写${label}，最多 ${maximum} 个字符。`);
   }
   return value.trim();
+}
+
+function evidenceFileInput(request) {
+  const {body, contentType} = request;
+  const mediaType = typeof contentType === 'string' ? contentType.trim().toLowerCase() : '';
+  const signature = fileSignatures.get(mediaType);
+  if (!signature || !(body instanceof Uint8Array) || body.byteLength === 0) {
+    badRequest('请提供 PDF 或 PNG 文件。');
+  }
+  if (body.byteLength > MAX_EVIDENCE_FILE_BYTES) {
+    fail(413, 'FILE_TOO_LARGE', '文件大小不能超过 5 MiB。');
+  }
+  const bytes = Buffer.from(body);
+  if (!bytes.subarray(0, signature.length).equals(signature)) {
+    badRequest('文件内容与声明的 PDF 或 PNG 类型不符。');
+  }
+  return {bytes, mediaType};
 }
 
 function queryFields(params, fields) {
@@ -122,8 +145,8 @@ function errorResponse(error) {
 
 // The caller must supply an authenticated server-side context. No request field
 // or header may be promoted directly into that context.
-export function createCarbonApi(database) {
-  const intake = createIntakeService(database);
+export function createCarbonApi(database, {quarantine} = {}) {
+  const intake = createIntakeService(database, quarantine);
   return {
     async dispatch(request, context) {
       try {
@@ -132,6 +155,16 @@ export function createCarbonApi(database) {
         const method = request?.method;
 
         if (method === 'POST') {
+          const evidenceFile = routes.evidenceFile.exec(path);
+          if (evidenceFile) {
+            queryFields(query, ['orgId']);
+            const orgId = uuid(query.get('orgId'), '组织');
+            const caseId = uuid(evidenceFile[1], '任务');
+            const evidenceId = uuid(evidenceFile[2], '材料');
+            const {bytes, mediaType} = evidenceFileInput(request);
+            return {status: 201, body: await intake.receiveEvidenceFile(
+              scope, orgId, caseId, evidenceId, mediaType, bytes)};
+          }
           queryFields(query, []);
           if (path === '/v1/customer/cases') {
             const input = commandBody(request.body, ['orgId', 'scenarioReleaseId', 'purpose']);

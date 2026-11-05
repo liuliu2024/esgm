@@ -128,10 +128,46 @@ async function loadEvidence() {
     for (const evidence of items) {
       const entry = document.createElement('li');
       const title = document.createElement('strong');
-      title.textContent = evidence.title + ' · ' + (evidence.status === 'pending_file' ? '待补文件' : evidence.status);
+      const label = { pending_file: '待补文件', pending_scan: '待检查' }[evidence.status];
+      title.textContent = evidence.title + ' · ' + (label ?? evidence.status);
       const source = document.createElement('p');
       source.textContent = evidence.sourceDescription;
       entry.append(title, source);
+      if (evidence.status === 'pending_file' && (item.status === 'draft' || item.status === 'returned')) {
+        const form = element('evidence-upload').content.firstElementChild.cloneNode(true);
+        const input = form.querySelector('input');
+        const alert = form.querySelector('[role="alert"]');
+        input.disabled = busy;
+        form.querySelector('button').disabled = busy;
+        form.addEventListener('submit', async event => {
+          event.preventDefault();
+          const file = input.files[0];
+          if (busy || selected !== item || creating || !file) return;
+          alert.textContent = '';
+          feedback.textContent = '';
+          setBusy(true);
+          try {
+            const response = await fetch(base + '/' + item.id + '/evidence/' + evidence.id + '/file?orgId=' + context.orgId, {
+              method: 'POST',
+              headers: { 'Content-Type': file.type },
+              body: file
+            });
+            if (!response.ok) {
+              const result = await response.json();
+              throw new Error(result.error?.message ?? '文件未接收。');
+            }
+            if (selected === item && !creating) {
+              feedback.textContent = '文件已接收，待检查。';
+              await loadEvidence();
+            }
+          } catch (error) {
+            if (selected === item && !creating) alert.textContent = error.message;
+          } finally {
+            setBusy(false);
+          }
+        });
+        entry.append(form);
+      }
       evidenceItems.append(entry);
     }
   } catch (error) {
