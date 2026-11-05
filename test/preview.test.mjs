@@ -36,6 +36,12 @@ test('three preview entries use the same intake and review workflow', async () =
     }, 201);
     const customer = `/v1/customer/cases/${created.id}`;
     const professional = `/v1/professional/cases/${created.id}`;
+    const activity = await post(customer + '/imports/preview', {
+      orgId, csv: 'period,source,quantity,unit\n2026-01,electricity,1,MWh'
+    });
+    assert.equal(activity.status, 'ready');
+    assert.equal(activity.preview[0].quantity, '1000');
+    assert.equal(activity.preview[0].unit, 'kWh');
     const evidence = await post(customer + '/evidence', {
       orgId, title: '月度用电账单', sourceDescription: '园区供电结算记录'
     }, 201);

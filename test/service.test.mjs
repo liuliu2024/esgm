@@ -6,8 +6,8 @@ import { createCarbonApi } from '../src/index.mjs';
 
 const id = value => `00000000-0000-4000-8000-${String(value).padStart(12, '0')}`;
 const [tenant, foreignTenant, org, siblingOrg, foreignOrg, release, foreignRelease,
-  customer, reviewer, administrator, peer, siblingReviewer, foreignReviewer, revocableReviewer] =
-  Array.from({length: 14}, (_, index) => id(index + 1));
+  customer, reviewer, administrator, peer, siblingReviewer, foreignReviewer, revocableReviewer, foreignCustomer] =
+  Array.from({length: 15}, (_, index) => id(index + 1));
 const createPath = '/v1/customer/cases';
 const auditPath = `/v1/admin/organizations/${org}/audit`;
 let db;
@@ -28,7 +28,8 @@ before(async () => {
       [tenant, org, customer, 'customer'], [tenant, org, customer, 'reviewer'],
       [tenant, org, reviewer, 'reviewer'], [tenant, org, administrator, 'admin'],
       [tenant, org, peer, 'customer'], [tenant, siblingOrg, siblingReviewer, 'reviewer'],
-      [foreignTenant, foreignOrg, foreignReviewer, 'reviewer'], [tenant, org, revocableReviewer, 'reviewer']
+      [foreignTenant, foreignOrg, foreignReviewer, 'reviewer'], [tenant, org, revocableReviewer, 'reviewer'],
+      [foreignTenant, foreignOrg, foreignCustomer, 'customer']
     ]) {
       await tx.query('INSERT INTO carbon.org_grant VALUES ($1, $2, $3, $4)', [workspace, organization, actor, role]);
     }
@@ -69,6 +70,20 @@ async function history(caseId) {
   assert.equal(response.status, 200);
   return response.body.events.filter(event => event.caseId === caseId).sort((a, b) => a.revision - b.revision);
 }
+
+test('activity precheck does not change audit and denies customers outside the case', async () => {
+  const caseId = await draft('preview-create');
+  const url = `${createPath}/${caseId}/imports/preview`;
+  const csv = 'period,source,quantity,unit\n2026-01,electricity,0,kWh';
+  const original = await history(caseId);
+  expectError(await send('POST', url, peer, 'preview-peer', {orgId: org, csv}), 404, 'CASE_NOT_FOUND');
+  expectError(await send('POST', url, foreignCustomer, 'preview-foreign', {orgId: foreignOrg, csv}, foreignTenant),
+    404, 'CASE_NOT_FOUND');
+  const preview = await send('POST', url, customer, 'preview-own', {orgId: org, csv});
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.status, 'ready');
+  assert.deepEqual(await history(caseId), original);
+});
 
 function expectError(response, status, code) {
   assert.equal(response.status, status);

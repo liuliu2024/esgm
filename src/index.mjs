@@ -13,6 +13,7 @@ const routes = {
   evidence: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/evidence$/,
   revisionEvidence: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/evidence$/,
   evidenceFile: /^\/v1\/customer\/cases\/([^/]+)\/evidence\/([^/]+)\/file$/,
+  activityPreview: /^\/v1\/customer\/cases\/([^/]+)\/imports\/preview$/,
   submit: /^\/v1\/customer\/cases\/([^/]+)\/submit$/,
   resubmit: /^\/v1\/customer\/cases\/([^/]+)\/resubmit$/,
   review: /^\/v1\/professional\/cases\/([^/]+)\/review$/,
@@ -178,6 +179,16 @@ export function createCarbonApi(database, {quarantine} = {}) {
               scope, orgId, caseId, evidenceId, mediaType, bytes)};
           }
           queryFields(query, []);
+          const activityPreview = routes.activityPreview.exec(path);
+          if (activityPreview) {
+            const input = commandBody(request.body, ['orgId', 'csv']);
+            if (typeof input.csv !== 'string') badRequest('请提供 CSV 文本。');
+            if (Buffer.byteLength(input.csv, 'utf8') > 8192) {
+              fail(413, 'IMPORT_TOO_LARGE', 'CSV 文本不能超过 8192 字节。');
+            }
+            return {status: 200, body: await intake.previewActivity(scope,
+              uuid(input.orgId, '组织'), uuid(activityPreview[1], '任务'), input.csv)};
+          }
           if (path === '/v1/customer/cases') {
             const input = commandBody(request.body, ['orgId', 'scenarioReleaseId', 'purpose']);
             return {status: 201, body: await intake.create(scope, {

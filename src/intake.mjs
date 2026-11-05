@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { previewActivityCsv } from './activity-preview.mjs';
 
 export class CarbonError extends Error {
   constructor(status, code, message) {
@@ -102,6 +103,14 @@ export function createIntakeService(database, quarantine) {
   }
 
   return {
+    previewActivity(scope, orgId, caseId, csv) {
+      return inWorkspace(scope, async tx => {
+        const task = await readVisibleCase(tx, scope, orgId, caseId, true);
+        requireEditableCase(task, '任务当前不能预检活动数据，请刷新后查看状态。');
+        return previewActivityCsv(csv);
+      });
+    },
+
     listScenarios(scope, orgId) {
       return inWorkspace(scope, async tx => {
         await requireRole(tx, scope, orgId, 'customer');
