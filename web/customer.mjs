@@ -30,6 +30,10 @@ const notes = new Map();
 const workflows = new Map();
 const industry = element('industry');
 const scenario = element('scenario');
+const scenarioReferences = element('scenario-references');
+const referenceItems = element('scenario-reference-items');
+const referenceState = element('scenario-references-state');
+const referenceError = element('scenario-references-error');
 const sampleCsv = 'period,source,quantity,unit\n2026-01,electricity,1000,kWh\n2026-01,natural_gas,200,m3';
 const sourceLabels = { electricity: '购入电力', natural_gas: '天然气' };
 const importActions = { insert: '新增', correct: '更正', unchanged: '无变更' };
@@ -43,6 +47,8 @@ let busy = false;
 let evidenceLoad = 0;
 let workflowCaseId;
 let reportHistoryView;
+let referenceReleaseId;
+let referenceLoad = 0;
 
 function renderScenario() {
   const matches = catalog.filter(item => item.industryCode === industry.value);
@@ -57,7 +63,54 @@ function renderScenario() {
 function renderScenarioContext() {
   const item = catalog.find(candidate => candidate.id === scenario.value);
   element('scenario-context').textContent = item ? `${item.purpose} · 交付对象 ${item.recipient} · 适用规则待确认` : '';
+  scenarioReferences.hidden = !item;
+  if (referenceReleaseId === item?.id) return;
+  referenceReleaseId = item?.id;
+  referenceLoad += 1;
+  referenceItems.replaceChildren();
+  referenceItems.hidden = true;
+  referenceState.textContent = '';
+  referenceError.textContent = '';
+  if (!item) scenarioReferences.open = false;
+  else if (scenarioReferences.open) loadScenarioReferences();
 }
+
+async function loadScenarioReferences() {
+  const releaseId = referenceReleaseId;
+  if (!releaseId || !scenarioReferences.open) return;
+  const load = ++referenceLoad;
+  referenceItems.replaceChildren();
+  referenceItems.hidden = true;
+  referenceError.textContent = '';
+  referenceState.textContent = '正在读取参考资料…';
+  try {
+    const {items} = await request(`/v1/customer/scenarios/${releaseId}/references?orgId=${context.orgId}`);
+    if (load !== referenceLoad) return;
+    const rows = items.map(({title, publisher, sourceUrl, scopeNote}) => {
+      const item = document.createElement('li');
+      const link = document.createElement('a');
+      const url = new URL(sourceUrl);
+      link.href = url.href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = title;
+      const scope = document.createElement('p');
+      scope.className = 'muted';
+      scope.textContent = `${publisher} · ${url.hostname} · ${scopeNote}`;
+      item.append(link, scope);
+      return item;
+    });
+    referenceItems.replaceChildren(...rows);
+    referenceItems.hidden = !rows.length;
+    referenceState.textContent = rows.length ? '' : '暂无参考资料。';
+  } catch {
+    if (load !== referenceLoad) return;
+    referenceState.textContent = '';
+    referenceError.textContent = '暂时无法读取参考资料。可合上后重新打开。';
+  }
+}
+
+scenarioReferences.addEventListener('toggle', loadScenarioReferences);
 
 async function loadCatalog() {
   const {items} = await request('/v1/customer/scenarios?orgId=' + context.orgId);

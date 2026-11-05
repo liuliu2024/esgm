@@ -54,6 +54,12 @@
             <label for="scenario">办理场景</label>
             <select id="scenario" required></select>
             <p id="scenario-context" class="muted" role="status"></p>
+            <details id="scenario-references" hidden>
+              <summary>参考资料</summary>
+              <p id="scenario-references-state" class="muted" role="status"></p>
+              <p id="scenario-references-error" role="alert"></p>
+              <ul id="scenario-reference-items" class="history-list" hidden></ul>
+            </details>
           </div>
           <label for="purpose">办理用途</label>
           <textarea id="purpose" maxlength="500" required></textarea>
