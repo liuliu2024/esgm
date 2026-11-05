@@ -1,0 +1,37 @@
+import { randomUUID } from 'node:crypto';
+import { createEmbeddedDatabase } from './embedded.mjs';
+import { migrate } from './migrations.mjs';
+import { createCarbonApi } from '../src/index.mjs';
+
+export async function startDemo() {
+  const db = await createEmbeddedDatabase();
+  const tenantId = randomUUID();
+  const orgId = randomUUID();
+  const scenarioReleaseId = randomUUID();
+  const actors = { customer: randomUUID(), reviewer: randomUUID(), admin: randomUUID() };
+  try {
+    await migrate(db.admin);
+    await db.admin.transaction(async tx => {
+      await tx.query('INSERT INTO carbon.workspace (id, name) VALUES ($1, $2)', [tenantId, '演示工作空间']);
+      await tx.query('INSERT INTO carbon.organization (tenant_id, id, name) VALUES ($1, $2, $3)',
+        [tenantId, orgId, '演示组织']);
+      await tx.query('INSERT INTO carbon.scenario_release (tenant_id, id, code, version, manifest) VALUES ($1, $2, $3, 1, $4)',
+        [tenantId, scenarioReleaseId, 'carbon-intake', { title: '碳业务受理' }]);
+      for (const [role, actorId] of Object.entries(actors)) {
+        await tx.query('INSERT INTO carbon.org_grant (tenant_id, org_id, actor_id, role) VALUES ($1, $2, $3, $4)',
+          [tenantId, orgId, actorId, role]);
+      }
+    });
+    const api = createCarbonApi(db.runtime);
+    return {
+      orgId, scenarioReleaseId,
+      dispatch: (role, method, path, body) => api.dispatch({ method, path, body }, {
+        tenantId, actorId: actors[role], requestId: randomUUID()
+      }),
+      close: db.close
+    };
+  } catch (error) {
+    await db.close();
+    throw error;
+  }
+}

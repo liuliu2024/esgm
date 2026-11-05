@@ -6,6 +6,7 @@
   "engines": {"node": ">=22"},
   "scripts": {
     "demo": "node infra/demo.mjs",
+    "preview": "node infra/preview.mjs",
     "migrate": "node infra/migrate-postgres.mjs",
     "test": "node --test test/*.test.mjs"
   },

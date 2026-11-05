@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>企业工作台</title>
+  <link rel="stylesheet" href="/shared.css">
+  <style>
+    .task-list { list-style: none; padding: 0; margin: 12px 0; }
+    .task-list button { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; text-align: left; }
+    .task-list button[aria-current="true"] { border-color: var(--accent); background: var(--accent-soft); }
+    .task-list button span:first-child, #case-title, #return-reason { overflow-wrap: anywhere; white-space: pre-wrap; }
+    .task-list .status { flex-shrink: 0; }
+    #history summary { cursor: pointer; }
+    #feedback:not(:empty) { margin-block: 0 12px; }
+    #submit { justify-self: start; }
+  </style>
+  <script type="module" src="/customer.mjs"></script>
+</head>
+<body>
+  <header class="heading">
+    <h1>企业工作台</h1>
+    <button id="new-case" class="primary" type="button" disabled>新建受理</button>
+  </header>
+  <main>
+    <p id="feedback" role="status"></p>
+    <div class="layout">
+      <section class="panel" aria-labelledby="list-heading">
+        <div class="heading">
+          <h2 id="list-heading">我的受理单</h2>
+          <button id="refresh" type="button" disabled>刷新</button>
+        </div>
+        <p id="list-state" class="muted">正在读取…</p>
+        <ul id="cases" class="task-list"></ul>
+        <button id="next-page" type="button" hidden>加载更多</button>
+      </section>
+      <section class="panel" aria-label="受理单">
+        <p id="placeholder" class="muted">请选择受理单。</p>
+        <form id="create" hidden>
+          <div class="heading">
+            <h2>新建受理</h2>
+            <button type="button" id="cancel-create">取消</button>
+          </div>
+          <label for="scenario">场景</label>
+          <select id="scenario" required><option value="">碳业务受理</option></select>
+          <label for="purpose">办理用途</label>
+          <textarea id="purpose" maxlength="500" required></textarea>
+          <p id="create-error" role="alert"></p>
+          <button class="primary" type="submit">保存草稿</button>
+        </form>
+        <article id="detail" class="stack" hidden>
+          <div class="heading">
+            <h2 id="case-title" tabindex="-1"></h2>
+            <span id="case-status" class="status"></span>
+          </div>
+          <p id="case-revision" class="muted"></p>
+          <section id="returned" class="notice" hidden>
+            <h3>退回原因</h3>
+            <p id="return-reason"></p>
+          </section>
+          <button class="primary" type="button" id="submit" hidden>提交复核</button>
+          <form id="correct" hidden>
+            <label for="correction">补正说明</label>
+            <textarea id="correction" maxlength="500" required></textarea>
+            <button id="resubmit" class="primary" type="submit">补正并重新提交</button>
+          </form>
+          <p id="action-error" role="alert"></p>
+          <details id="history">
+            <summary>办理历史</summary>
+            <div id="history-events"></div>
+          </details>
+        </article>
+      </section>
+    </div>
+  </main>
+</body>
+</html>
