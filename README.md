@@ -52,6 +52,8 @@ npm test
 | 客户 | `POST /v1/customer/cases/:id/imports/:batchId/repreview` | `orgId, previewRevision`，用冻结的源文件重新生成预览 |
 | 客户 | `POST /v1/customer/cases/:id/imports/:batchId/commit` | `orgId, previewRevision`，整批确认入账，重复确认返回原回执 |
 | 客户 | `GET /v1/customer/cases/:id/calculation-preview` | `orgId, from, to`，按月份读取本人任务的合成因子核算预览，显示缺值和来源修订 |
+| 客户 | `POST /v1/customer/cases/:id/calculation-snapshots` | `orgId, from, to`，冻结完整的合成预览。同一组输入返回原快照 |
+| 客户 | `GET /v1/customer/cases/:id/calculation-snapshots/:snapshotId` | `orgId`，读取本人任务已冻结的合成结果与来源版本 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/evidence` | `orgId`，返回有权查看的材料清单 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/revisions/:revision/evidence` | `orgId`，返回已提交修订所引用的材料和文件摘要 |
 | 专业复核人 | `GET /v1/professional/cases/:id` | 查询参数 `orgId` |

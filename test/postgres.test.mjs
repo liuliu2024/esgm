@@ -77,6 +77,24 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
     assert.equal(calculation.body.totalKgCO2e, null);
     assert.equal(calculation.body.items[0].lineage.activityRevision, 2);
     assert.equal(calculation.body.items[1].quantity, null);
+    const snapshots = `/v1/customer/cases/${id}/calculation-snapshots`;
+    const snapshotInput = { orgId, from: '2026-01', to: '2026-01' };
+    const incomplete = await dispatch(customer, 'POST', snapshots, snapshotInput);
+    assert.equal(incomplete.status, 409);
+    assert.equal(incomplete.body.error.code, 'CALCULATION_INCOMPLETE');
+    const gasImport = await dispatch(customer, 'POST', imports, {
+      orgId, csv: 'period,source,quantity,unit\n2026-01,natural_gas,0,m3'
+    });
+    assert.equal(gasImport.status, 200);
+    assert.equal((await confirm(gasImport.body)).status, 200);
+    const capture = () => dispatch(customer, 'POST', snapshots, snapshotInput);
+    const copies = await Promise.all([capture(), capture()]);
+    assert.deepEqual(copies.map(item => item.status).sort(), [200, 201]);
+    assert.deepEqual(copies[0].body, copies[1].body);
+    assert.equal(copies[0].body.result.totalKgCO2e, '1000');
+    assert.equal(copies[0].body.result.items[1].quantity, '0');
+    const frozen = await dispatch(customer, 'GET', `${snapshots}/${copies[0].body.snapshotId}?orgId=${orgId}`);
+    assert.deepEqual(frozen, { status: 200, body: copies[0].body });
     let evidenceReference;
     if (scannerDatabase) {
       assert.equal(new URL(scannerUrl).pathname, '/carbon_test');

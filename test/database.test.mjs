@@ -68,7 +68,8 @@ function transition(client, caseId, expectedRevision, status) {
 
 test('empty database applies migration once and replay preserves its ledger', async () => {
   assert.deepEqual(applied, ['001_core.sql', '002_corrections.sql', '003_evidence_register.sql',
-    '004_evidence_receipts.sql', '005_evidence_scan.sql', '006_evidence_revision.sql', '007_activity_import_ledger.sql']);
+    '004_evidence_receipts.sql', '005_evidence_scan.sql', '006_evidence_revision.sql', '007_activity_import_ledger.sql',
+    '008_calculation_snapshot.sql']);
   assert.deepEqual(await migrate(db.admin), []);
   const { rows } = await db.admin.transaction(client => client.query(
     'SELECT name FROM carbon_migrations.applied ORDER BY name'));
@@ -108,7 +109,8 @@ test('upgrade a returned 001 intake and preserve two corrections and their revie
   const returned = await act(reviewer, client => returnIntake(client, 2, originalReason));
   assert.deepEqual(returned.rows, [{ status: 'returned', revision: 3 }]);
   assert.deepEqual(await migrate(legacy.admin), ['002_corrections.sql', '003_evidence_register.sql',
-    '004_evidence_receipts.sql', '005_evidence_scan.sql', '006_evidence_revision.sql', '007_activity_import_ledger.sql']);
+    '004_evidence_receipts.sql', '005_evidence_scan.sql', '006_evidence_revision.sql', '007_activity_import_ledger.sql',
+    '008_calculation_snapshot.sql']);
   assert.deepEqual(await migrate(legacy.admin), []);
   const {rows: historicalSubmissions} = await act(customer, client => client.query(
     'SELECT revision FROM carbon.case_submission WHERE case_id = $1', [caseId]));

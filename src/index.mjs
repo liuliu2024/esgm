@@ -18,6 +18,8 @@ const routes = {
   activityImport: /^\/v1\/customer\/cases\/([^/]+)\/imports\/([^/]+)$/,
   activityImportAction: /^\/v1\/customer\/cases\/([^/]+)\/imports\/([^/]+)\/(repreview|commit)$/,
   calculationPreview: /^\/v1\/customer\/cases\/([^/]+)\/calculation-preview$/,
+  calculationSnapshots: /^\/v1\/customer\/cases\/([^/]+)\/calculation-snapshots$/,
+  calculationSnapshot: /^\/v1\/customer\/cases\/([^/]+)\/calculation-snapshots\/([^/]+)$/,
   submit: /^\/v1\/customer\/cases\/([^/]+)\/submit$/,
   resubmit: /^\/v1\/customer\/cases\/([^/]+)\/resubmit$/,
   review: /^\/v1\/professional\/cases\/([^/]+)\/review$/,
@@ -67,11 +69,11 @@ function revision(value) {
   return value;
 }
 
-function calculationMonths(query) {
-  const from = query.get('from');
-  const to = query.get('to');
+function calculationMonths(from, to) {
   const monthPattern = /^(?!0000)\d{4}-(0[1-9]|1[0-2])$/;
-  if (!monthPattern.test(from) || !monthPattern.test(to)) badRequest('请填写有效的起止月份 YYYY-MM。');
+  if (typeof from !== 'string' || typeof to !== 'string' || !monthPattern.test(from) || !monthPattern.test(to)) {
+    badRequest('请填写有效的起止月份 YYYY-MM。');
+  }
   const ordinal = month => Number(month.slice(0, 4)) * 12 + Number(month.slice(5));
   const span = ordinal(to) - ordinal(from) + 1;
   if (span < 1 || span > 12) badRequest('核算预览范围应为 1 至 12 个月。');
@@ -207,6 +209,12 @@ export function createCarbonApi(database, {quarantine} = {}) {
               scope, orgId, caseId, evidenceId, mediaType, bytes)};
           }
           queryFields(query, []);
+          const calculationSnapshots = routes.calculationSnapshots.exec(path);
+          if (calculationSnapshots) {
+            const input = commandBody(request.body, ['orgId', 'from', 'to']);
+            return await intake.saveCalculationSnapshot(scope,
+              uuid(input.orgId, '组织'), uuid(calculationSnapshots[1], '任务'), ...calculationMonths(input.from, input.to));
+          }
           const activityPreview = routes.activityPreview.exec(path);
           const activityImports = routes.activityImports.exec(path);
           if (activityPreview || activityImports) {
@@ -274,7 +282,14 @@ export function createCarbonApi(database, {quarantine} = {}) {
           if (calculationPreview) {
             queryFields(query, ['orgId', 'from', 'to']);
             return {status: 200, body: await intake.previewCalculation(scope,
-              uuid(query.get('orgId'), '组织'), uuid(calculationPreview[1], '任务'), ...calculationMonths(query))};
+              uuid(query.get('orgId'), '组织'), uuid(calculationPreview[1], '任务'),
+              ...calculationMonths(query.get('from'), query.get('to')))};
+          }
+          const calculationSnapshot = routes.calculationSnapshot.exec(path);
+          if (calculationSnapshot) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.readCalculationSnapshot(scope,
+              uuid(query.get('orgId'), '组织'), uuid(calculationSnapshot[1], '任务'), uuid(calculationSnapshot[2], '快照'))};
           }
           const activityImport = routes.activityImport.exec(path);
           if (activityImport) {
