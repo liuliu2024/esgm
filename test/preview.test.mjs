@@ -32,6 +32,12 @@ test('three preview entries use the same intake and review workflow', async () =
       [['buildings', 'needs_review'], ['manufacturing', 'needs_review']]);
     const selected = catalog.items.find(item => item.industryCode === 'manufacturing');
     assert.equal(selected.id, scenarioReleaseId);
+    const building = catalog.items.find(item => item.industryCode === 'buildings');
+    const manufacturingReferences = await read(`/v1/customer/scenarios/${selected.id}/references?orgId=${orgId}`);
+    const buildingReferences = await read(`/v1/customer/scenarios/${building.id}/references?orgId=${orgId}`);
+    assert.equal(manufacturingReferences.ruleStatus, 'needs_review');
+    assert.deepEqual(manufacturingReferences.items.map(item => item.code), ['gbt-24067-2024', 'electricity-pcf-2024']);
+    assert.deepEqual(buildingReferences.items.map(item => item.code), ['electricity-co2-2023']);
     const created = await post('/v1/customer/cases', {
       orgId, scenarioReleaseId: selected.id, purpose: '准备采购方碳数据报告'
     }, 201);

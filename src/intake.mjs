@@ -17,6 +17,7 @@ const eventFields = `id, case_id AS "caseId", actor_id AS "actorId", action, rea
 const evidenceFields = `id, case_id AS "caseId", org_id AS "orgId", registered_by AS "registeredBy",
   title, source_description AS "sourceDescription", created_at AS "createdAt"`;
 const catalogFields = ['industryCode', 'industryName', 'title', 'purpose', 'recipient'];
+const referenceFields = ['code', 'title', 'publisher', 'sourceUrl', 'scopeNote'];
 const activityTemplate = 'activity-csv-v1';
 const snapshotSchemaVersion = 1;
 const snapshotFields = `id AS "snapshotId", case_id AS "caseId", created_at AS "createdAt",
@@ -406,6 +407,27 @@ export function createIntakeService(database, quarantine) {
           FROM carbon.commit_activity_import($1, $2, $3, $4)
         `, [orgId, caseId, batchId, previewRevision]);
         return {batchId, ...rows[0], committedAt: new Date(rows[0].committedAt).toISOString()};
+      });
+    },
+
+    listScenarioReferences(scope, orgId, scenarioReleaseId) {
+      return inWorkspace(scope, async tx => {
+        await requireRole(tx, scope, orgId, 'customer');
+        const {rows: [release]} = await tx.query(`
+          SELECT manifest->'references' AS references FROM carbon.scenario_release
+          WHERE tenant_id = $1 AND id = $2
+        `, [scope.tenantId, scenarioReleaseId]);
+        if (!release) throw new CarbonError(404, 'SCENARIO_NOT_FOUND', '未找到可访问的场景版本。');
+        const items = [];
+        if (Array.isArray(release.references)) {
+          for (const entry of release.references) {
+            if (!referenceFields.every(field => typeof entry?.[field] === 'string' && entry[field].trim())) continue;
+            const url = URL.parse(entry.sourceUrl);
+            if (url?.protocol !== 'https:' || url.username || url.password) continue;
+            items.push({...Object.fromEntries(referenceFields.map(field => [field, entry[field]])), sourceUrl: url.href});
+          }
+        }
+        return {scenarioReleaseId, ruleStatus: 'needs_review', items};
       });
     },
 

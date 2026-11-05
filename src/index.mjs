@@ -7,6 +7,7 @@ const fileSignatures = new Map([
   ['image/png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])]
 ]);
 const routes = {
+  scenarioReferences: /^\/v1\/customer\/scenarios\/([^/]+)\/references$/,
   cases: /^\/v1\/(customer|professional)\/cases$/,
   case: /^\/v1\/(customer|professional)\/cases\/([^/]+)$/,
   history: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/history$/,
@@ -322,6 +323,12 @@ export function createCarbonApi(database, {quarantine} = {}) {
           if (path === '/v1/customer/scenarios') {
             queryFields(query, ['orgId']);
             return {status: 200, body: await intake.listScenarios(scope, uuid(query.get('orgId'), '组织'))};
+          }
+          const scenarioReferences = routes.scenarioReferences.exec(path);
+          if (scenarioReferences) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.listScenarioReferences(scope,
+              uuid(query.get('orgId'), '组织'), uuid(scenarioReferences[1], '场景版本'))};
           }
           const list = routes.cases.exec(path);
           if (list) {
