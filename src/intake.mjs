@@ -161,6 +161,61 @@ export function createIntakeService(database, quarantine) {
       });
     },
 
+    previewCalculation(scope, orgId, caseId, from, to) {
+      return inWorkspace(scope, async tx => {
+        await readVisibleCase(tx, scope, orgId, caseId, true);
+        const {rows} = await tx.query(`
+          WITH factors(source, unit, id, value, position) AS (VALUES
+            ('electricity', 'kWh', 'demo-electricity', 0.5::numeric, 1),
+            ('natural_gas', 'm3', 'demo-natural-gas', 2::numeric, 2)
+          ), latest AS (
+            SELECT DISTINCT ON (period, source) period, source, unit, quantity, revision,
+              batch_id, preview_revision, source_row, source_type, conversion_version, original_quantity, original_unit
+            FROM carbon.activity_record_revision
+            WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND period BETWEEN $4::date AND $5::date
+            ORDER BY period, source, revision DESC
+          ), slots AS (
+            SELECT month.period, factors.source, factors.unit, factors.id, factors.value, factors.position,
+              latest.quantity, latest.revision, latest.batch_id, latest.preview_revision, latest.source_row,
+              latest.source_type, latest.conversion_version, latest.original_quantity, latest.original_unit,
+              latest.quantity * factors.value AS emissions
+            FROM generate_series($4::date::timestamp, $5::date::timestamp, interval '1 month') AS month(period)
+            CROSS JOIN factors
+            LEFT JOIN latest ON latest.period = month.period::date AND latest.source = factors.source
+              AND latest.unit = factors.unit
+          )
+          SELECT to_char(period, 'YYYY-MM') AS period, source, unit, trim_scale(quantity)::text AS quantity,
+            trim_scale(emissions)::text AS "emissionsKgCO2e",
+            jsonb_build_object('id', id, 'version', 1, 'value', value::text,
+              'inputUnit', unit, 'outputUnit', 'kgCO2e', 'synthetic', true) AS factor,
+            CASE WHEN revision IS NOT NULL THEN jsonb_build_object(
+              'activityRevision', revision, 'batchId', batch_id, 'previewRevision', preview_revision,
+              'sourceRow', source_row, 'sourceType', source_type, 'conversionVersion', conversion_version,
+              'originalQuantity', original_quantity, 'originalUnit', original_unit
+            ) END AS lineage,
+            trim_scale(sum(emissions) OVER ())::text AS "subtotalKg",
+            trim_scale(sum(emissions) OVER () * 0.001::numeric)::text AS "subtotalT"
+          FROM slots ORDER BY period, position
+        `, [scope.tenantId, orgId, caseId, `${from}-01`, `${to}-01`]);
+        const {subtotalKg, subtotalT} = rows[0];
+        const items = rows.map(({subtotalKg, subtotalT, ...item}) => ({
+          ...item, status: item.quantity === null ? 'missing_activity' : 'calculated'
+        }));
+        const expectedSlots = items.length;
+        const availableSlots = items.filter(item => item.status === 'calculated').length;
+        const missingSlots = expectedSlots - availableSlots;
+        const status = !availableSlots ? 'empty' : missingSlots ? 'partial' : 'complete';
+        return {
+          caseId, from, to, mode: 'synthetic', formalReportEligible: false,
+          model: {id: 'task-carbon-preview', version: 1, factorSetId: 'synthetic-energy', factorSetVersion: 1, synthetic: true},
+          coverage: {status, expectedSlots, availableSlots, missingSlots}, items,
+          knownSubtotalKgCO2e: subtotalKg,
+          totalKgCO2e: missingSlots ? null : subtotalKg,
+          totalTCO2e: missingSlots ? null : subtotalT
+        };
+      });
+    },
+
     saveActivityImport(scope, orgId, caseId, csv) {
       return inWorkspace(scope, async tx => {
         await requireRole(tx, scope, orgId, 'customer');

@@ -69,6 +69,14 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
     const correctionReceipt = await confirm(competingImport.body, refreshed.body.previewRevision);
     assert.equal(correctionReceipt.status, 200);
     assert.equal(correctionReceipt.body.corrected, 1);
+    const calculation = await dispatch(customer, 'GET',
+      `/v1/customer/cases/${id}/calculation-preview?orgId=${orgId}&from=2026-01&to=2026-01`);
+    assert.equal(calculation.status, 200);
+    assert.equal(calculation.body.formalReportEligible, false);
+    assert.equal(calculation.body.knownSubtotalKgCO2e, '1000');
+    assert.equal(calculation.body.totalKgCO2e, null);
+    assert.equal(calculation.body.items[0].lineage.activityRevision, 2);
+    assert.equal(calculation.body.items[1].quantity, null);
     let evidenceReference;
     if (scannerDatabase) {
       assert.equal(new URL(scannerUrl).pathname, '/carbon_test');

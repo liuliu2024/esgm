@@ -17,6 +17,7 @@ const routes = {
   activityImports: /^\/v1\/customer\/cases\/([^/]+)\/imports$/,
   activityImport: /^\/v1\/customer\/cases\/([^/]+)\/imports\/([^/]+)$/,
   activityImportAction: /^\/v1\/customer\/cases\/([^/]+)\/imports\/([^/]+)\/(repreview|commit)$/,
+  calculationPreview: /^\/v1\/customer\/cases\/([^/]+)\/calculation-preview$/,
   submit: /^\/v1\/customer\/cases\/([^/]+)\/submit$/,
   resubmit: /^\/v1\/customer\/cases\/([^/]+)\/resubmit$/,
   review: /^\/v1\/professional\/cases\/([^/]+)\/review$/,
@@ -64,6 +65,17 @@ function commandBody(body, fields, optional = []) {
 function revision(value) {
   if (!Number.isInteger(value) || value < 1 || value > 2147483647) badRequest('任务版本必须为正整数。');
   return value;
+}
+
+function calculationMonths(query) {
+  const from = query.get('from');
+  const to = query.get('to');
+  const monthPattern = /^(?!0000)\d{4}-(0[1-9]|1[0-2])$/;
+  if (!monthPattern.test(from) || !monthPattern.test(to)) badRequest('请填写有效的起止月份 YYYY-MM。');
+  const ordinal = month => Number(month.slice(0, 4)) * 12 + Number(month.slice(5));
+  const span = ordinal(to) - ordinal(from) + 1;
+  if (span < 1 || span > 12) badRequest('核算预览范围应为 1 至 12 个月。');
+  return [from, to];
 }
 
 function submissionEvidenceIds(value) {
@@ -258,6 +270,12 @@ export function createCarbonApi(database, {quarantine} = {}) {
         }
 
         if (method === 'GET') {
+          const calculationPreview = routes.calculationPreview.exec(path);
+          if (calculationPreview) {
+            queryFields(query, ['orgId', 'from', 'to']);
+            return {status: 200, body: await intake.previewCalculation(scope,
+              uuid(query.get('orgId'), '组织'), uuid(calculationPreview[1], '任务'), ...calculationMonths(query))};
+          }
           const activityImport = routes.activityImport.exec(path);
           if (activityImport) {
             queryFields(query, ['orgId']);
