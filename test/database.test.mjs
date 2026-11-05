@@ -68,7 +68,7 @@ function transition(client, caseId, expectedRevision, status) {
 
 test('empty database applies migration once and replay preserves its ledger', async () => {
   assert.deepEqual(applied, ['001_core.sql', '002_corrections.sql', '003_evidence_register.sql',
-    '004_evidence_receipts.sql', '005_evidence_scan.sql']);
+    '004_evidence_receipts.sql', '005_evidence_scan.sql', '006_evidence_revision.sql']);
   assert.deepEqual(await migrate(db.admin), []);
   const { rows } = await db.admin.transaction(client => client.query(
     'SELECT name FROM carbon_migrations.applied ORDER BY name'));
@@ -108,8 +108,17 @@ test('upgrade a returned 001 intake and preserve two corrections and their revie
   const returned = await act(reviewer, client => returnIntake(client, 2, originalReason));
   assert.deepEqual(returned.rows, [{ status: 'returned', revision: 3 }]);
   assert.deepEqual(await migrate(legacy.admin), ['002_corrections.sql', '003_evidence_register.sql',
-    '004_evidence_receipts.sql', '005_evidence_scan.sql']);
+    '004_evidence_receipts.sql', '005_evidence_scan.sql', '006_evidence_revision.sql']);
   assert.deepEqual(await migrate(legacy.admin), []);
+  const {rows: historicalSubmissions} = await act(customer, client => client.query(
+    'SELECT revision FROM carbon.case_submission WHERE case_id = $1', [caseId]));
+  assert.deepEqual(historicalSubmissions, [{revision: 2}]);
+  const {rows: historicalEvidence} = await act(customer, client => client.query(
+    'SELECT evidence_id FROM carbon.case_submission_evidence WHERE case_id = $1', [caseId]));
+  assert.deepEqual(historicalEvidence, []);
+  const {rows: auditPolicy} = await legacy.admin.transaction(client => client.query(
+    "SELECT relforcerowsecurity FROM pg_class WHERE oid = 'carbon.audit_event'::regclass"));
+  assert.deepEqual(auditPolicy, [{relforcerowsecurity: true}]);
 
   const upgraded = await act(customer, client => client.query(`SELECT status, revision, return_reason, correction_note
     FROM carbon.case_intake WHERE id = $1`, [caseId]));

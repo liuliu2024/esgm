@@ -55,13 +55,16 @@ function requireEditableCase(task, message) {
   }
 }
 
-async function transition(tx, scope, orgId, id, revision, before, after, customerOnly, {reason = null, correctionNote} = {}) {
+async function transition(tx, scope, orgId, id, revision, before, after, customerOnly, {reason = null, correctionNote, evidenceIds} = {}) {
   const current = await readCase(tx, scope, orgId, id, customerOnly);
   if (!customerOnly && current.createdBy === scope.actorId) {
     throw new CarbonError(403, 'SELF_REVIEW_FORBIDDEN', '发起人不能复核自己的任务。');
   }
   if (current.revision !== revision || current.status !== before) {
     throw new CarbonError(409, 'CASE_CONFLICT', '任务状态或版本已变化，请刷新后重试。');
+  }
+  if (evidenceIds?.length) {
+    await tx.query("SELECT set_config('carbon.submission_evidence_ids', $1::uuid[]::text, true)", [evidenceIds]);
   }
   const params = [scope.tenantId, orgId, id, revision, before, after, customerOnly ? scope.actorId : null, reason];
   const correctionAssignment = correctionNote === undefined ? '' : ', correction_note = $9';
@@ -230,17 +233,39 @@ export function createIntakeService(database, quarantine) {
       });
     },
 
-    submit(scope, orgId, id, revision) {
+    listRevisionEvidence(scope, orgId, id, revision, customerOnly) {
       return inWorkspace(scope, async tx => {
-        await requireRole(tx, scope, orgId, 'customer');
-        return transition(tx, scope, orgId, id, revision, 'draft', 'submitted', true);
+        await readVisibleCase(tx, scope, orgId, id, customerOnly);
+        const {rows} = await tx.query(`
+          SELECT ref.evidence_id AS "evidenceId", ref.receipt_id AS "receiptId", ref.sha256,
+            evidence.title, evidence.source_description AS "sourceDescription"
+          FROM carbon.case_submission AS submission
+          LEFT JOIN carbon.case_submission_evidence AS ref USING (tenant_id, org_id, case_id, revision)
+          LEFT JOIN carbon.case_evidence AS evidence
+            ON evidence.tenant_id = ref.tenant_id AND evidence.org_id = ref.org_id
+            AND evidence.case_id = ref.case_id AND evidence.id = ref.evidence_id
+          WHERE submission.tenant_id = $1 AND submission.org_id = $2 AND submission.case_id = $3
+            AND submission.revision = $4
+          ORDER BY evidence.created_at, ref.evidence_id
+        `, [scope.tenantId, orgId, id, revision]);
+        if (rows.length === 0) {
+          throw new CarbonError(404, 'REVISION_NOT_FOUND', '未找到该任务的提交版本。');
+        }
+        return {items: rows.filter(item => item.evidenceId !== null)};
       });
     },
 
-    resubmit(scope, orgId, id, revision, correctionNote) {
+    submit(scope, orgId, id, revision, evidenceIds) {
       return inWorkspace(scope, async tx => {
         await requireRole(tx, scope, orgId, 'customer');
-        return transition(tx, scope, orgId, id, revision, 'returned', 'submitted', true, {correctionNote});
+        return transition(tx, scope, orgId, id, revision, 'draft', 'submitted', true, {evidenceIds});
+      });
+    },
+
+    resubmit(scope, orgId, id, revision, correctionNote, evidenceIds) {
+      return inWorkspace(scope, async tx => {
+        await requireRole(tx, scope, orgId, 'customer');
+        return transition(tx, scope, orgId, id, revision, 'returned', 'submitted', true, {correctionNote, evidenceIds});
       });
     },
 

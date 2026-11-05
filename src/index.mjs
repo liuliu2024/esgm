@@ -11,6 +11,7 @@ const routes = {
   case: /^\/v1\/(customer|professional)\/cases\/([^/]+)$/,
   history: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/history$/,
   evidence: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/evidence$/,
+  revisionEvidence: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/evidence$/,
   evidenceFile: /^\/v1\/customer\/cases\/([^/]+)\/evidence\/([^/]+)\/file$/,
   submit: /^\/v1\/customer\/cases\/([^/]+)\/submit$/,
   resubmit: /^\/v1\/customer\/cases\/([^/]+)\/resubmit$/,
@@ -59,6 +60,14 @@ function commandBody(body, fields, optional = []) {
 function revision(value) {
   if (!Number.isInteger(value) || value < 1 || value > 2147483647) badRequest('任务版本必须为正整数。');
   return value;
+}
+
+function submissionEvidenceIds(value) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) badRequest('材料标识必须以数组提供。');
+  const ids = Array.from(value, id => uuid(id, '材料'));
+  if (new Set(ids).size !== ids.length) badRequest('同一份材料只能引用一次。');
+  return ids;
 }
 
 function requiredText(value, label, maximum = 500) {
@@ -129,6 +138,9 @@ function errorResponse(error) {
   if (error instanceof CarbonError) {
     return {status: error.status, body: {error: {code: error.code, message: error.message}}};
   }
+  if (error?.code === '23514' && error.constraint === 'submission_evidence_available') {
+    return {status: 409, body: {error: {code: 'EVIDENCE_UNAVAILABLE', message: '所选材料无法用于本次提交，请检查材料后重试。'}}};
+  }
   switch (error?.code) {
     case '42501':
       return {status: 403, body: {error: {code: 'ACCESS_DENIED', message: '你没有该组织的操作权限。'}}};
@@ -183,16 +195,16 @@ export function createCarbonApi(database, {quarantine} = {}) {
           }
           const submit = routes.submit.exec(path);
           if (submit) {
-            const input = commandBody(request.body, ['orgId', 'revision']);
+            const input = commandBody(request.body, ['orgId', 'revision'], ['evidenceIds']);
             return {status: 200, body: await intake.submit(scope,
-              uuid(input.orgId, '组织'), uuid(submit[1], '任务'), revision(input.revision))};
+              uuid(input.orgId, '组织'), uuid(submit[1], '任务'), revision(input.revision), submissionEvidenceIds(input.evidenceIds))};
           }
           const resubmit = routes.resubmit.exec(path);
           if (resubmit) {
-            const input = commandBody(request.body, ['orgId', 'revision', 'correctionNote']);
+            const input = commandBody(request.body, ['orgId', 'revision', 'correctionNote'], ['evidenceIds']);
             return {status: 200, body: await intake.resubmit(scope,
               uuid(input.orgId, '组织'), uuid(resubmit[1], '任务'), revision(input.revision),
-              requiredText(input.correctionNote, '补正说明'))};
+              requiredText(input.correctionNote, '补正说明'), submissionEvidenceIds(input.evidenceIds))};
           }
           const review = routes.review.exec(path);
           if (review) {
@@ -230,6 +242,14 @@ export function createCarbonApi(database, {quarantine} = {}) {
             queryFields(query, ['orgId']);
             return {status: 200, body: await intake.listEvidence(scope,
               uuid(query.get('orgId'), '组织'), uuid(evidence[2], '任务'), evidence[1] === 'customer')};
+          }
+          const revisionEvidence = routes.revisionEvidence.exec(path);
+          if (revisionEvidence) {
+            queryFields(query, ['orgId']);
+            const [, role, caseId, revisionParam] = revisionEvidence;
+            if (!/^\d+$/.test(revisionParam)) badRequest('任务版本必须为正整数。');
+            return {status: 200, body: await intake.listRevisionEvidence(scope,
+              uuid(query.get('orgId'), '组织'), uuid(caseId, '任务'), revision(Number(revisionParam)), role === 'customer')};
           }
           const administration = routes.administration.exec(path);
           if (administration) {

@@ -43,6 +43,7 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
     const created = await dispatch(customer, 'POST', '/v1/customer/cases', { orgId, scenarioReleaseId, purpose: '并行复核验证' });
     assert.equal(created.status, 201);
     const id = created.body.id;
+    let evidenceReference;
     if (scannerDatabase) {
       assert.equal(new URL(scannerUrl).pathname, '/carbon_test');
       assert.equal(new URL(scannerUrl).username, 'carbon_test_scanner');
@@ -70,9 +71,19 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
       assert.deepEqual(await scanReceipt(tenantId, file.body.id), { receiptId: file.body.id, verdict: 'pass' });
       assert.equal(scannerCalls, 1);
       await assert.rejects(scannerDatabase.transaction(tx => tx.query('SELECT id FROM carbon.case_intake')), { code: '42501' });
+      evidenceReference = { evidenceId, receiptId: file.body.id, sha256: file.body.sha256,
+        title: '扫描集成样例', sourceDescription: '测试数据' };
     }
-    const submitted = await dispatch(customer, 'POST', `/v1/customer/cases/${id}/submit`, { orgId, revision: 1 });
+    const submission = { orgId, revision: 1 };
+    if (evidenceReference) submission.evidenceIds = [evidenceReference.evidenceId];
+    const submitted = await dispatch(customer, 'POST', `/v1/customer/cases/${id}/submit`, submission);
     assert.equal(submitted.status, 200);
+
+    if (evidenceReference) {
+      const refs = await dispatch(reviewer, 'GET', `/v1/professional/cases/${id}/revisions/2/evidence?orgId=${orgId}`);
+      assert.equal(refs.status, 200);
+      assert.deepEqual(refs.body.items, [evidenceReference]);
+    }
 
     const reviewPath = `/v1/professional/cases/${id}/review`;
     const results = await Promise.all([

@@ -39,13 +39,14 @@ npm test
 |---|---|---|
 | 客户 | `POST /v1/customer/cases` | `orgId, scenarioReleaseId, purpose` |
 | 客户 | `GET /v1/customer/cases/:id` | 查询参数 `orgId`，本人发起的受理单 |
-| 客户 | `POST /v1/customer/cases/:id/submit` | `orgId, revision` |
-| 客户 | `POST /v1/customer/cases/:id/resubmit` | `orgId, revision, correctionNote` |
+| 客户 | `POST /v1/customer/cases/:id/submit` | `orgId, revision`，可选 `evidenceIds` |
+| 客户 | `POST /v1/customer/cases/:id/resubmit` | `orgId, revision, correctionNote`，可选 `evidenceIds` |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases` | `orgId`，可选 `limit, cursor` |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/history` | `orgId`，返回有权查看的状态历史 |
 | 客户 | `POST /v1/customer/cases/:id/evidence` | `orgId, title, sourceDescription`，本人草稿或退回任务的待补文件登记 |
 | 客户 | `POST /v1/customer/cases/:id/evidence/:evidenceId/file` | 查询参数 `orgId`，原始 PDF 或 PNG 字节，最多 5 MiB。配置隔离区后返回待检查接收记录 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/evidence` | `orgId`，返回有权查看的材料清单 |
+| 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/revisions/:revision/evidence` | `orgId`，返回已提交修订所引用的材料和文件摘要 |
 | 专业复核人 | `GET /v1/professional/cases/:id` | 查询参数 `orgId` |
 | 专业复核人 | `POST /v1/professional/cases/:id/review` | `orgId, revision, decision`。退回时必填 `reason` |
 | 组织管理员 | `GET /v1/admin/organizations/:orgId/audit` | 可选 `limit, offset` |
@@ -55,6 +56,8 @@ npm test
 
 用专用空数据库和受信迁移账号运行 `npm run migrate`，连接由 `MIGRATION_DATABASE_URL` 提供。迁移会创建 `carbon` 业务架构及 `carbon_app` 权限角色。应用连接使用独立 LOGIN 角色，由部署方授予 `carbon_app` 成员资格。迁移账号持有建库对象、建角色所需权限，应用账号只持有业务权限。数据库 URL 由部署密钥管理提供。
 
-初始迁移用于独立空库。已登记迁移通过校验和保持不可变。补正、材料清单和文件接收迁移可在前序迁移已应用的数据库增量执行。初次接入需建立工作空间、组织授权和已发布场景版本。
+初始迁移用于独立空库。已登记迁移通过校验和保持不可变。补正、材料清单、文件接收和扫描结果迁移可在前序迁移已应用的数据库增量执行。初次接入需建立工作空间、组织授权和已发布场景版本。
 
-GitHub Actions 在临时 PostgreSQL 17 验证连接池上下文和并行复核。正式接入前须完成身份集成、目标环境隔离及恢复演练。文件扫描、正式引用和提交结果未确认时的对象对账仍是后续切片。详见 [需求详细设计](docs/detailed-design.md)、[三端界面交接](docs/ui-handoff.md) 和 [证据设计](docs/evidence-design.md)。
+扫描进程使用独立登录角色继承 `carbon_scanner`，通过 `connectPostgres(url, { scanner: true })` 连接，由 `createEvidenceScanner` 接收受信收件 ID 并调用扫描适配器。本地预览仅演示隔离接收。
+
+GitHub Actions 在临时 PostgreSQL 17 验证连接池上下文、并行复核和扫描角色隔离。正式接入前须完成身份集成、目标环境的 ClamD 和持久隔离存储验收、对象对账及恢复演练。详见 [需求详细设计](docs/detailed-design.md)、[三端界面交接](docs/ui-handoff.md) 和 [证据设计](docs/evidence-design.md)。
