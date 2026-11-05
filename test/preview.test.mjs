@@ -72,6 +72,12 @@ test('three preview entries use the same intake and review workflow', async () =
     assert.equal(draft.report.watermark, '内部演示｜合成因子｜禁止外发');
     assert.equal(draft.report.summary.totalTCO2e, '0.9');
     assert.equal(draft.externalDeliveryEligible, false);
+    const electricity = draft.report.items.find(item => item.source === 'electricity');
+    const activityQuery = new URLSearchParams({orgId, period: electricity.period, source: electricity.source,
+      revision: electricity.lineage.activityRevision});
+    const sourceActivity = await read(`${customer}/activities?${activityQuery}`);
+    assert.equal(sourceActivity.quantity, electricity.quantity);
+    assert.equal(sourceActivity.lineage.batchId, imported.batchId);
     const draftHistory = await read(`${customer}/internal-report-drafts?orgId=${orgId}`);
     assert.deepEqual(draftHistory, { items: [{ draftId: draft.draftId, snapshotId: snapshot.snapshotId,
       createdAt: draft.createdAt, from: '2026-01', to: '2026-01', templateVersion: 1 }], nextCursor: null });
