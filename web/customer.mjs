@@ -13,6 +13,11 @@ const correction = element('correction');
 const correctionForm = element('correct');
 const submit = element('submit');
 const history = element('history');
+const reportHistory = element('report-history');
+const reportHistoryList = element('report-history-list');
+const reportHistoryMore = element('report-history-more');
+const reportHistoryRetry = element('report-history-retry');
+const reportHistoryResult = element('report-history-result');
 const historyEvents = element('history-events');
 const actionError = element('action-error');
 const feedback = element('feedback');
@@ -37,6 +42,7 @@ let creating = false;
 let busy = false;
 let evidenceLoad = 0;
 let workflowCaseId;
+let reportHistoryView;
 
 function renderScenario() {
   const matches = catalog.filter(item => item.industryCode === industry.value);
@@ -79,11 +85,123 @@ function calculationLine(item) {
   return `${label} · ${item.quantity} ${item.unit} · ${item.emissionsKgCO2e} kgCO₂e`;
 }
 
+function renderReport(container, draft, historical = false) {
+  container.hidden = !draft;
+  container.replaceChildren();
+  if (!draft) return;
+  const heading = document.createElement('h4');
+  heading.textContent = historical ? `历史演示稿 · ${draft.report.title}` : draft.report.title;
+  const watermark = document.createElement('strong');
+  watermark.textContent = draft.report.watermark;
+  const summary = document.createElement('p');
+  summary.textContent = `${draft.report.scope.from} 至 ${draft.report.scope.to} · ${draft.report.summary.totalKgCO2e} kgCO₂e（${draft.report.summary.totalTCO2e} tCO₂e）`;
+  const rows = document.createElement('ul');
+  rows.className = 'history-list';
+  setRows(rows, draft.report.items.map(item => `${calculationLine(item)} · 源文件第 ${item.lineage.sourceRow} 行 · 活动第 ${item.lineage.activityRevision} 版 · 因子 v${item.factor.version}`));
+  container.append(heading, watermark, summary, rows);
+}
+
+function renderReportHistory() {
+  const view = reportHistoryView;
+  reportHistoryList.replaceChildren(...(view?.items ?? []).map(draft => {
+    const row = document.createElement('li');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.draftId = draft.draftId;
+    button.disabled = busy;
+    const created = new Date(draft.createdAt).toLocaleString('zh-CN');
+    button.textContent = `${draft.from} 至 ${draft.to} · ${created} · 模板 v${draft.templateVersion}`;
+    row.append(button);
+    return row;
+  }));
+  reportHistoryList.hidden = !view?.items.length;
+  element('report-history-state').textContent = view?.loading ? '正在读取演示稿…' :
+    view?.loaded && !view.items.length ? '暂无历史演示稿。' : '';
+  element('report-history-error').textContent = view?.error ?? '';
+  reportHistoryMore.hidden = !view?.cursor || view.loading || Boolean(view.error);
+  reportHistoryRetry.hidden = !view?.error;
+  element('report-history-detail-state').textContent = view?.detailLoading ? '正在读取原稿…' : '';
+  element('report-history-detail-error').textContent = view?.detailError ?? '';
+  renderReport(reportHistoryResult, view?.draft, true);
+}
+
+async function loadReportHistory(cursor = null) {
+  if (!selected || creating || !reportHistory.open) return;
+  if (!cursor) reportHistoryView = {caseId: selected.id, items: []};
+  const view = reportHistoryView;
+  if (!view || view.loading) return;
+  view.loading = true;
+  view.error = '';
+  renderReportHistory();
+  try {
+    const query = new URLSearchParams({orgId: context.orgId, limit: '5'});
+    if (cursor) query.set('cursor', cursor);
+    const page = await request(`${base}/${view.caseId}/internal-report-drafts?${query}`);
+    view.items.push(...page.items);
+    view.cursor = page.nextCursor;
+    view.loaded = true;
+  } catch (error) {
+    view.error = error.message;
+    view.retryCursor = cursor;
+  } finally {
+    view.loading = false;
+    if (reportHistoryView === view) renderReportHistory();
+  }
+}
+
+reportHistory.addEventListener('toggle', () => {
+  if (reportHistory.open) loadReportHistory();
+  else reportHistoryView = null;
+});
+
+reportHistoryMore.addEventListener('click', async () => {
+  const view = reportHistoryView;
+  const oldCount = view.items.length;
+  await loadReportHistory(view.cursor);
+  if (view !== reportHistoryView) return;
+  if (view.error) reportHistoryRetry.focus();
+  else reportHistoryList.children[oldCount]?.firstElementChild.focus();
+});
+
+reportHistoryRetry.addEventListener('click', async () => {
+  await loadReportHistory(reportHistoryView.retryCursor);
+  if (!reportHistoryRetry.hidden) reportHistoryRetry.focus();
+  else (reportHistoryList.querySelector('button') ?? reportHistory.querySelector('summary')).focus();
+});
+
+reportHistoryList.addEventListener('click', async event => {
+  const button = event.target.closest('button[data-draft-id]');
+  const view = reportHistoryView;
+  if (!button || !view || view.detailLoading) return;
+  view.detailLoading = true;
+  view.detailError = '';
+  view.draft = null;
+  element('report-history-detail-state').textContent = '正在读取原稿…';
+  element('report-history-detail-error').textContent = '';
+  renderReport(reportHistoryResult, null, true);
+  try {
+    view.draft = await request(`${base}/${view.caseId}/internal-report-drafts/${button.dataset.draftId}?orgId=${context.orgId}`);
+  } catch (error) {
+    view.detailError = error.message;
+  } finally {
+    view.detailLoading = false;
+    if (reportHistoryView === view && reportHistory.open) {
+      element('report-history-detail-state').textContent = '';
+      element('report-history-detail-error').textContent = view.detailError;
+      renderReport(reportHistoryResult, view.draft, true);
+      if (view.draft) reportHistoryResult.focus();
+    }
+  }
+});
+
 function renderWorkflow() {
   if (!selected || creating) return;
   if (workflowCaseId !== selected.id) {
     workflowCaseId = selected.id;
     element('activity-workflow').open = false;
+    reportHistory.open = false;
+    reportHistoryView = null;
+    renderReportHistory();
   }
   if (!workflows.has(selected.id)) workflows.set(selected.id, {csv: '', from: '', to: ''});
   const state = workflows.get(selected.id);
@@ -113,23 +231,9 @@ function renderWorkflow() {
       calculation.coverage.status === 'partial' ? `已知小计 ${calculation.knownSubtotalKgCO2e} kgCO₂e · 缺 ${calculation.coverage.missingSlots} 项` : '暂无已入账的活动数据。'
   ) : '';
   setRows(element('calc-rows'), calculation?.items.map(calculationLine) ?? []);
-  const report = element('report-result');
   element('report-stage').hidden = !draft && calculation?.coverage.status !== 'complete';
   element('report-generate').hidden = calculation?.coverage.status !== 'complete';
-  report.hidden = !draft;
-  report.replaceChildren();
-  if (draft) {
-    const heading = document.createElement('h4');
-    heading.textContent = draft.report.title;
-    const watermark = document.createElement('strong');
-    watermark.textContent = draft.report.watermark;
-    const summary = document.createElement('p');
-    summary.textContent = `${draft.report.scope.from} 至 ${draft.report.scope.to} · ${draft.report.summary.totalKgCO2e} kgCO₂e（${draft.report.summary.totalTCO2e} tCO₂e）`;
-    const rows = document.createElement('ul');
-    rows.className = 'history-list';
-    setRows(rows, draft.report.items.map(item => `${calculationLine(item)} · 源文件第 ${item.lineage.sourceRow} 行 · 活动第 ${item.lineage.activityRevision} 版 · 因子 v${item.factor.version}`));
-    report.append(heading, watermark, summary, rows);
-  }
+  renderReport(element('report-result'), draft);
 }
 
 async function runWorkflow(errorField, operation) {
@@ -489,7 +593,10 @@ element('report-generate').addEventListener('click', async () => {
     state.draft = await request(`${path}/internal-report-drafts`, {orgId, snapshotId});
     generated = true;
   });
-  if (generated) element('report-result').focus();
+  if (generated) {
+    element('report-result').focus();
+    if (reportHistory.open) loadReportHistory();
+  }
 });
 
 evidenceForm.addEventListener('submit', async event => {

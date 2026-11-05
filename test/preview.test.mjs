@@ -12,6 +12,7 @@ test('three preview entries use the same intake and review workflow', async () =
       assert.match(html, new RegExp(title));
       assert.doesNotMatch(html, /演示角色|架构与 AI/);
       if (path !== '/admin') assert.match(html, /材料清单/);
+      if (path === '/customer') assert.match(html, /历史演示稿/);
     }
     const read = async path => {
       const response = await fetch(preview.origin + path);
