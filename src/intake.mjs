@@ -15,6 +15,7 @@ const eventFields = `id, case_id AS "caseId", actor_id AS "actorId", action, rea
   correction_note AS "correctionNote", request_id AS "requestId", created_at AS "createdAt"`;
 const evidenceFields = `id, case_id AS "caseId", org_id AS "orgId", registered_by AS "registeredBy",
   title, source_description AS "sourceDescription", created_at AS "createdAt"`;
+const catalogFields = ['industryCode', 'industryName', 'title', 'purpose', 'recipient'];
 
 function accessDenied() {
   return new CarbonError(403, 'ACCESS_DENIED', '你没有该组织的操作权限。');
@@ -101,6 +102,25 @@ export function createIntakeService(database, quarantine) {
   }
 
   return {
+    listScenarios(scope, orgId) {
+      return inWorkspace(scope, async tx => {
+        await requireRole(tx, scope, orgId, 'customer');
+        const {rows} = await tx.query(`
+          SELECT DISTINCT ON (code) id, code, version, manifest->'catalog' AS catalog
+          FROM carbon.scenario_release
+          WHERE tenant_id = $1
+          ORDER BY code, version DESC
+        `, [scope.tenantId]);
+        const items = [];
+        for (const {id, code, version, catalog} of rows) {
+          if (!catalogFields.every(field => typeof catalog?.[field] === 'string' && catalog[field].trim())) continue;
+          const details = Object.fromEntries(catalogFields.map(field => [field, catalog[field]]));
+          items.push({id, code, version, ...details, ruleStatus: 'needs_review'});
+        }
+        return {items};
+      });
+    },
+
     create(scope, input) {
       return inWorkspace(scope, async tx => {
         await requireRole(tx, scope, input.orgId, 'customer');

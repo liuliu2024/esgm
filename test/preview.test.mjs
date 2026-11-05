@@ -26,8 +26,13 @@ test('three preview entries use the same intake and review workflow', async () =
       return response.json();
     };
     const { orgId, scenarioReleaseId } = await read('/demo/context');
+    const catalog = await read(`/v1/customer/scenarios?orgId=${orgId}`);
+    assert.deepEqual(catalog.items.map(({industryCode, ruleStatus}) => [industryCode, ruleStatus]),
+      [['buildings', 'needs_review'], ['manufacturing', 'needs_review']]);
+    const selected = catalog.items.find(item => item.industryCode === 'manufacturing');
+    assert.equal(selected.id, scenarioReleaseId);
     const created = await post('/v1/customer/cases', {
-      orgId, scenarioReleaseId, purpose: '准备采购方碳数据报告'
+      orgId, scenarioReleaseId: selected.id, purpose: '准备采购方碳数据报告'
     }, 201);
     const customer = `/v1/customer/cases/${created.id}`;
     const professional = `/v1/professional/cases/${created.id}`;

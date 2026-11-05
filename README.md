@@ -37,6 +37,7 @@ npm test
 
 | 角色 | 方法与路径 | 参数 |
 |---|---|---|
+| 客户 | `GET /v1/customer/scenarios` | `orgId`，返回当前租户发布的行业、任务用途、交付对象和场景版本。适用性统一待确认 |
 | 客户 | `POST /v1/customer/cases` | `orgId, scenarioReleaseId, purpose` |
 | 客户 | `GET /v1/customer/cases/:id` | 查询参数 `orgId`，本人发起的受理单 |
 | 客户 | `POST /v1/customer/cases/:id/submit` | `orgId, revision`，可选 `evidenceIds` |

@@ -218,6 +218,10 @@ export function createCarbonApi(database, {quarantine} = {}) {
         }
 
         if (method === 'GET') {
+          if (path === '/v1/customer/scenarios') {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.listScenarios(scope, uuid(query.get('orgId'), '组织'))};
+          }
           const list = routes.cases.exec(path);
           if (list) {
             queryFields(query, ['orgId', 'limit', 'cursor']);
