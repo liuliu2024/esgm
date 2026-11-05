@@ -15,7 +15,9 @@ test('three preview entries use the same intake and review workflow', async () =
       if (path === '/customer') {
         assert.match(html, /历史演示稿/);
         assert.match(html, /参考资料/);
+        assert.match(html, /申报范围/);
       }
+      if (path === '/professional') assert.match(html, /申报范围/);
     }
     const read = async path => {
       const response = await fetch(preview.origin + path);
@@ -41,9 +43,12 @@ test('three preview entries use the same intake and review workflow', async () =
     assert.equal(manufacturingReferences.ruleStatus, 'needs_review');
     assert.deepEqual(manufacturingReferences.items.map(item => item.code), ['gbt-24067-2024', 'electricity-pcf-2024']);
     assert.deepEqual(buildingReferences.items.map(item => item.code), ['electricity-co2-2023']);
+    const scope = { subjectType: 'product', subjectName: '合成设备', jurisdiction: '上海市',
+      reportingYear: '2026', recipient: '样例采购方' };
     const created = await post('/v1/customer/cases', {
-      orgId, scenarioReleaseId: selected.id, purpose: '准备采购方碳数据报告'
+      orgId, scenarioReleaseId: selected.id, purpose: '准备采购方碳数据报告', scope
     }, 201);
+    assert.deepEqual(created.scope, scope);
     const customer = `/v1/customer/cases/${created.id}`;
     const professional = `/v1/professional/cases/${created.id}`;
     const activity = await post(customer + '/imports/preview', {
@@ -86,6 +91,7 @@ test('three preview entries use the same intake and review workflow', async () =
     });
     assert.equal(oversized.status, 413);
     const submitted = await post(customer + '/submit', { orgId, revision: created.revision });
+    assert.deepEqual((await read(`${professional}?orgId=${orgId}`)).scope, scope);
     const returned = await post(professional + '/review', {
       orgId, revision: submitted.revision, decision: 'returned', reason: '补充报告期间'
     });

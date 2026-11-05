@@ -30,6 +30,9 @@ const notes = new Map();
 const workflows = new Map();
 const industry = element('industry');
 const scenario = element('scenario');
+const includeScope = element('include-intake-scope');
+const scopeFields = element('intake-scope-fields');
+const subjectTypes = {organization: '组织', facility: '设施', product: '产品', project: '项目'};
 const scenarioReferences = element('scenario-references');
 const referenceItems = element('scenario-reference-items');
 const referenceState = element('scenario-references-state');
@@ -45,6 +48,7 @@ let cursor;
 let creating = false;
 let busy = false;
 let evidenceLoad = 0;
+let caseDetailLoad = 0;
 let workflowCaseId;
 let reportHistoryView;
 let referenceReleaseId;
@@ -339,6 +343,12 @@ function renderDetail() {
   status.textContent = statusLabel(selected.status);
   status.dataset.status = selected.status;
   element('case-revision').textContent = '第 ' + selected.revision + ' 版';
+  const scope = selected.scope;
+  element('case-intake-scope').hidden = !scope;
+  element('case-scope-subject').textContent = scope ? `${subjectTypes[scope.subjectType]} · ${scope.subjectName}` : '';
+  element('case-scope-jurisdiction').textContent = scope?.jurisdiction ?? '';
+  element('case-scope-year').textContent = scope?.reportingYear ?? '';
+  element('case-scope-recipient').textContent = scope?.recipient ?? '';
   element('returned').hidden = selected.status !== 'returned';
   element('return-reason').textContent = selected.returnReason ?? '';
   submit.hidden = selected.status !== 'draft';
@@ -452,9 +462,10 @@ async function loadEvidence() {
   }
 }
 
-list.addEventListener('click', event => {
+list.addEventListener('click', async event => {
   const button = event.target.closest('button[data-id]');
   if (!button) return;
+  if (creating) resetCreate();
   if (selected?.id !== button.dataset.id) evidenceForm.reset();
   evidenceError.textContent = '';
   selected = cases.find(item => item.id === button.dataset.id);
@@ -465,7 +476,16 @@ list.addEventListener('click', event => {
   renderList();
   renderDetail();
   title.focus();
-  loadEvidence();
+  const item = selected;
+  const load = ++caseDetailLoad;
+  try {
+    const current = await request(`${base}/${item.id}?orgId=${context.orgId}`);
+    if (selected !== item || creating || load !== caseDetailLoad) return;
+    updateCase(current);
+    await loadEvidence();
+  } catch (error) {
+    if (selected === item && !creating && load === caseDetailLoad) feedback.textContent = error.message;
+  }
 });
 
 newCase.addEventListener('click', async () => {
@@ -490,8 +510,22 @@ newCase.addEventListener('click', async () => {
 industry.addEventListener('change', renderScenario);
 scenario.addEventListener('change', renderScenarioContext);
 
+function toggleIntakeScope() {
+  scopeFields.hidden = !includeScope.checked;
+  scopeFields.disabled = !includeScope.checked;
+}
+
+includeScope.addEventListener('change', toggleIntakeScope);
+
+function resetCreate() {
+  create.reset();
+  toggleIntakeScope();
+  renderScenario();
+}
+
 element('cancel-create').addEventListener('click', () => {
   creating = false;
+  resetCreate();
   renderList();
   renderDetail();
   newCase.focus();
@@ -504,14 +538,23 @@ create.addEventListener('submit', async event => {
   errorMessage.textContent = '';
   setBusy(true);
   try {
-    const item = await request(base, {
+    const body = {
       orgId: context.orgId,
       scenarioReleaseId: element('scenario').value,
       purpose: element('purpose').value
-    });
+    };
+    if (includeScope.checked) {
+      body.scope = {
+        subjectType: element('scope-subject-type').value,
+        subjectName: element('scope-subject-name').value,
+        jurisdiction: element('scope-jurisdiction').value,
+        reportingYear: element('scope-reporting-year').value,
+        recipient: element('scope-recipient').value
+      };
+    }
+    const item = await request(base, body);
     creating = false;
-    create.reset();
-    renderScenario();
+    resetCreate();
     cases = [item, ...cases];
     history.open = false;
     actionError.textContent = '';

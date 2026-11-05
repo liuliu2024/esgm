@@ -21,6 +21,11 @@
     .workflow-stage li, #report-result { overflow-wrap: anywhere; }
     #feedback:not(:empty) { margin-block: 0 12px; }
     #submit { justify-self: start; }
+    .scope-toggle { display: flex; align-items: center; gap: 8px; }
+    .scope-toggle input { min-height: auto; }
+    #intake-scope-fields { min-width: 0; margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); }
+    #case-intake-scope dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+    #case-intake-scope dd { margin: 0; overflow-wrap: anywhere; }
   </style>
   <script type="module" src="/customer.mjs"></script>
 </head>
@@ -63,6 +68,26 @@
           </div>
           <label for="purpose">办理用途</label>
           <textarea id="purpose" maxlength="500" required></textarea>
+          <label class="scope-toggle"><input id="include-intake-scope" type="checkbox" aria-controls="intake-scope-fields">填写申报范围（可选）</label>
+          <fieldset id="intake-scope-fields" class="stack" disabled hidden>
+            <legend>申报范围</legend>
+            <label for="scope-subject-type">报告对象类型</label>
+            <select id="scope-subject-type" required>
+              <option value="">请选择</option>
+              <option value="organization">组织</option>
+              <option value="facility">设施</option>
+              <option value="product">产品</option>
+              <option value="project">项目</option>
+            </select>
+            <label for="scope-subject-name">报告对象名称</label>
+            <input id="scope-subject-name" maxlength="120" pattern=".*\S.*" required>
+            <label for="scope-jurisdiction">地区</label>
+            <input id="scope-jurisdiction" maxlength="80" pattern=".*\S.*" required>
+            <label for="scope-reporting-year">报告年度</label>
+            <input id="scope-reporting-year" inputmode="numeric" maxlength="4" pattern="(?!0000)[0-9]{4}" title="请输入四位报告年度" required>
+            <label for="scope-recipient">交付对象</label>
+            <input id="scope-recipient" maxlength="120" pattern=".*\S.*" required>
+          </fieldset>
           <p id="create-error" role="alert"></p>
           <button class="primary" type="submit">保存草稿</button>
         </form>
@@ -72,6 +97,15 @@
             <span id="case-status" class="status"></span>
           </div>
           <p id="case-revision" class="muted"></p>
+          <section id="case-intake-scope" class="stack" aria-labelledby="case-intake-scope-title" hidden>
+            <h3 id="case-intake-scope-title">申报范围</h3>
+            <dl>
+              <dt>报告对象</dt><dd id="case-scope-subject"></dd>
+              <dt>地区</dt><dd id="case-scope-jurisdiction"></dd>
+              <dt>报告年度</dt><dd id="case-scope-year"></dd>
+              <dt>交付对象</dt><dd id="case-scope-recipient"></dd>
+            </dl>
+          </section>
           <section id="returned" class="notice" hidden>
             <h3>退回原因</h3>
             <p id="return-reason"></p>
