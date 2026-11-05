@@ -318,6 +318,27 @@ export function createIntakeService(database, quarantine) {
       });
     },
 
+    listInternalReportDrafts(scope, orgId, caseId, limit, cursor) {
+      return inWorkspace(scope, async tx => {
+        await readVisibleCase(tx, scope, orgId, caseId, true);
+        const {rows} = await tx.query(`
+          SELECT draft.id AS "draftId", draft.snapshot_id AS "snapshotId", draft.created_at AS "createdAt",
+            draft.payload#>>'{report,scope,from}' AS "from", draft.payload#>>'{report,scope,to}' AS "to",
+            draft.template_version AS "templateVersion"
+          FROM carbon.internal_report_draft AS draft
+          LEFT JOIN carbon.internal_report_draft AS anchor
+            ON anchor.tenant_id = draft.tenant_id AND anchor.org_id = draft.org_id
+            AND anchor.case_id = draft.case_id AND anchor.id = $4::uuid
+          WHERE draft.tenant_id = $1 AND draft.org_id = $2 AND draft.case_id = $3
+            AND ($4::uuid IS NULL OR (draft.created_at, draft.id) < (anchor.created_at, anchor.id))
+          ORDER BY draft.created_at DESC, draft.id DESC
+          LIMIT $5
+        `, [scope.tenantId, orgId, caseId, cursor, limit + 1]);
+        const items = rows.slice(0, limit).map(item => ({...item, createdAt: new Date(item.createdAt).toISOString()}));
+        return {items, nextCursor: rows.length > limit ? items.at(-1).draftId : null};
+      });
+    },
+
     readInternalReportDraft(scope, orgId, caseId, draftId) {
       return inWorkspace(scope, async tx => {
         await readVisibleCase(tx, scope, orgId, caseId, true);

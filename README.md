@@ -57,6 +57,7 @@ npm test
 | 客户 | `POST /v1/customer/cases/:id/calculation-snapshots` | `orgId, from, to`，冻结完整的合成预览。同一组输入返回原快照 |
 | 客户 | `GET /v1/customer/cases/:id/calculation-snapshots/:snapshotId` | `orgId`，读取本人任务已冻结的合成结果与来源版本 |
 | 客户 | `POST /v1/customer/cases/:id/internal-report-drafts` | `orgId, snapshotId`，从同任务的冻结合成快照生成站内结构化演示稿 |
+| 客户 | `GET /v1/customer/cases/:id/internal-report-drafts` | `orgId`，可选 `limit, cursor`，读取本人任务的历史稿件索引 |
 | 客户 | `GET /v1/customer/cases/:id/internal-report-drafts/:draftId` | `orgId`，读取原稿版本及来源，合成演示稿禁止外发 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/evidence` | `orgId`，返回有权查看的材料清单 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/revisions/:revision/evidence` | `orgId`，返回已提交修订所引用的材料和文件摘要 |

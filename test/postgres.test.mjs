@@ -108,6 +108,10 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
     const draftPath = `${drafts}/${draft.draftId}?orgId=${orgId}`;
     assert.deepEqual(await dispatch(customer, 'GET', draftPath), { status: 200, body: draft });
     assert.equal((await dispatch(reviewer, 'GET', draftPath)).status, 403);
+    const history = await dispatch(customer, 'GET', `${drafts}?orgId=${orgId}&limit=1`);
+    assert.deepEqual(history, { status: 200, body: { items: [{ draftId: draft.draftId,
+      snapshotId: draft.snapshotId, createdAt: draft.createdAt, from: '2026-01', to: '2026-01', templateVersion: 1 }],
+      nextCursor: null } });
     let evidenceReference;
     if (scannerDatabase) {
       assert.equal(new URL(scannerUrl).pathname, '/carbon_test');

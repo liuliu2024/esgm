@@ -286,6 +286,14 @@ export function createCarbonApi(database, {quarantine} = {}) {
         }
 
         if (method === 'GET') {
+          const internalReportDrafts = routes.internalReportDrafts.exec(path);
+          if (internalReportDrafts) {
+            queryFields(query, ['orgId', 'limit', 'cursor']);
+            const cursor = query.get('cursor');
+            return {status: 200, body: await intake.listInternalReportDrafts(scope,
+              uuid(query.get('orgId'), '组织'), uuid(internalReportDrafts[1], '任务'), pageLimit(query),
+              cursor === null ? null : uuid(cursor, '稿件游标'))};
+          }
           const internalReportDraft = routes.internalReportDraft.exec(path);
           if (internalReportDraft) {
             queryFields(query, ['orgId']);
