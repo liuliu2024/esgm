@@ -21,6 +21,8 @@ const activityTemplate = 'activity-csv-v1';
 const snapshotSchemaVersion = 1;
 const snapshotFields = `id AS "snapshotId", case_id AS "caseId", created_at AS "createdAt",
   schema_version AS "schemaVersion", payload AS result`;
+const draftTemplate = {id: 'internal-management-demo', version: 1, locale: 'zh-CN'};
+const draftFields = `id AS "draftId", created_at AS "createdAt", payload`;
 
 function accessDenied() {
   return new CarbonError(403, 'ACCESS_DENIED', '你没有该组织的操作权限。');
@@ -195,6 +197,19 @@ async function calculateActivity(tx, scope, orgId, caseId, from, to) {
   };
 }
 
+async function readSnapshot(tx, scope, orgId, caseId, snapshotId) {
+  const {rows: [snapshot]} = await tx.query(`
+    SELECT ${snapshotFields} FROM carbon.calculation_snapshot
+    WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND id = $4
+  `, [scope.tenantId, orgId, caseId, snapshotId]);
+  if (!snapshot) throw new CarbonError(404, 'CALCULATION_SNAPSHOT_NOT_FOUND', '未找到可访问的计算快照。');
+  return {...snapshot, createdAt: new Date(snapshot.createdAt).toISOString()};
+}
+
+function draftResponse({draftId, createdAt, payload}) {
+  return {draftId, createdAt: new Date(createdAt).toISOString(), ...payload};
+}
+
 export function createIntakeService(database, quarantine) {
   function inWorkspace(scope, command) {
     return database.transaction(async tx => {
@@ -256,12 +271,62 @@ export function createIntakeService(database, quarantine) {
     readCalculationSnapshot(scope, orgId, caseId, snapshotId) {
       return inWorkspace(scope, async tx => {
         await readVisibleCase(tx, scope, orgId, caseId, true);
-        const {rows: [snapshot]} = await tx.query(`
-          SELECT ${snapshotFields} FROM carbon.calculation_snapshot
+        return readSnapshot(tx, scope, orgId, caseId, snapshotId);
+      });
+    },
+
+    createInternalReportDraft(scope, orgId, caseId, snapshotId) {
+      return inWorkspace(scope, async tx => {
+        const task = await readVisibleCase(tx, scope, orgId, caseId, true);
+        const snapshot = await readSnapshot(tx, scope, orgId, caseId, snapshotId);
+        const result = snapshot.result;
+        if (snapshot.schemaVersion !== 1 || result.mode !== 'synthetic' || result.formalReportEligible !== false
+          || result.coverage.status !== 'complete') {
+          throw new CarbonError(409, 'REPORT_DRAFT_SOURCE_UNSUPPORTED', '请选择支持的完整计算快照。');
+        }
+        const payload = {
+          caseId, snapshotId, status: 'draft', mode: 'synthetic', formalReportEligible: false,
+          externalDeliveryEligible: false, template: draftTemplate,
+          report: {
+            title: '内部管理报告演示稿', watermark: '内部演示｜合成因子｜禁止外发',
+            scope: {caseId, from: result.from, to: result.to, purpose: task.purpose, snapshotCreatedAt: snapshot.createdAt},
+            summary: {coverage: result.coverage, totalKgCO2e: result.totalKgCO2e, totalTCO2e: result.totalTCO2e},
+            model: result.model, items: result.items,
+            limitations: [
+              '合成因子仅用于内部演示。',
+              '覆盖范围按本演示模板计算。',
+              '尚未完成正式适用性审核，稿件禁止外发或用于正式报告。'
+            ]
+          }
+        };
+        const key = [scope.tenantId, orgId, caseId, snapshotId, draftTemplate.id, draftTemplate.version];
+        const {rows: [created]} = await tx.query(`
+          INSERT INTO carbon.internal_report_draft
+            (tenant_id, org_id, case_id, snapshot_id, template_id, template_version, id, created_by, request_id, payload)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          ON CONFLICT (tenant_id, org_id, case_id, snapshot_id, template_id, template_version) DO NOTHING
+          RETURNING ${draftFields}
+        `, [...key, randomUUID(), scope.actorId, scope.requestId, JSON.stringify(payload)]);
+        if (created) return {status: 201, body: draftResponse(created)};
+
+        const {rows: [existing]} = await tx.query(`
+          SELECT ${draftFields} FROM carbon.internal_report_draft
+          WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND snapshot_id = $4
+            AND template_id = $5 AND template_version = $6
+        `, key);
+        return {status: 200, body: draftResponse(existing)};
+      });
+    },
+
+    readInternalReportDraft(scope, orgId, caseId, draftId) {
+      return inWorkspace(scope, async tx => {
+        await readVisibleCase(tx, scope, orgId, caseId, true);
+        const {rows: [draft]} = await tx.query(`
+          SELECT ${draftFields} FROM carbon.internal_report_draft
           WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND id = $4
-        `, [scope.tenantId, orgId, caseId, snapshotId]);
-        if (!snapshot) throw new CarbonError(404, 'CALCULATION_SNAPSHOT_NOT_FOUND', '未找到可访问的计算快照。');
-        return {...snapshot, createdAt: new Date(snapshot.createdAt).toISOString()};
+        `, [scope.tenantId, orgId, caseId, draftId]);
+        if (!draft) throw new CarbonError(404, 'REPORT_DRAFT_NOT_FOUND', '未找到可访问的内部演示稿。');
+        return draftResponse(draft);
       });
     },
 

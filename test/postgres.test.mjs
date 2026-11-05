@@ -95,6 +95,19 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
     assert.equal(copies[0].body.result.items[1].quantity, '0');
     const frozen = await dispatch(customer, 'GET', `${snapshots}/${copies[0].body.snapshotId}?orgId=${orgId}`);
     assert.deepEqual(frozen, { status: 200, body: copies[0].body });
+    const drafts = `/v1/customer/cases/${id}/internal-report-drafts`;
+    const generate = () => dispatch(customer, 'POST', drafts, { orgId, snapshotId: frozen.body.snapshotId });
+    const draftCopies = await Promise.all([generate(), generate()]);
+    assert.deepEqual(draftCopies.map(item => item.status).sort(), [200, 201]);
+    assert.deepEqual(draftCopies[0].body, draftCopies[1].body);
+    const draft = draftCopies[0].body;
+    assert.equal(draft.snapshotId, frozen.body.snapshotId);
+    assert.equal(draft.externalDeliveryEligible, false);
+    assert.equal(draft.formalReportEligible, false);
+    assert.equal(draft.report.watermark, '内部演示｜合成因子｜禁止外发');
+    const draftPath = `${drafts}/${draft.draftId}?orgId=${orgId}`;
+    assert.deepEqual(await dispatch(customer, 'GET', draftPath), { status: 200, body: draft });
+    assert.equal((await dispatch(reviewer, 'GET', draftPath)).status, 403);
     let evidenceReference;
     if (scannerDatabase) {
       assert.equal(new URL(scannerUrl).pathname, '/carbon_test');

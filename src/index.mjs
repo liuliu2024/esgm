@@ -20,6 +20,8 @@ const routes = {
   calculationPreview: /^\/v1\/customer\/cases\/([^/]+)\/calculation-preview$/,
   calculationSnapshots: /^\/v1\/customer\/cases\/([^/]+)\/calculation-snapshots$/,
   calculationSnapshot: /^\/v1\/customer\/cases\/([^/]+)\/calculation-snapshots\/([^/]+)$/,
+  internalReportDrafts: /^\/v1\/customer\/cases\/([^/]+)\/internal-report-drafts$/,
+  internalReportDraft: /^\/v1\/customer\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)$/,
   submit: /^\/v1\/customer\/cases\/([^/]+)\/submit$/,
   resubmit: /^\/v1\/customer\/cases\/([^/]+)\/resubmit$/,
   review: /^\/v1\/professional\/cases\/([^/]+)\/review$/,
@@ -209,6 +211,12 @@ export function createCarbonApi(database, {quarantine} = {}) {
               scope, orgId, caseId, evidenceId, mediaType, bytes)};
           }
           queryFields(query, []);
+          const internalReportDrafts = routes.internalReportDrafts.exec(path);
+          if (internalReportDrafts) {
+            const input = commandBody(request.body, ['orgId', 'snapshotId']);
+            return await intake.createInternalReportDraft(scope,
+              uuid(input.orgId, '组织'), uuid(internalReportDrafts[1], '任务'), uuid(input.snapshotId, '快照'));
+          }
           const calculationSnapshots = routes.calculationSnapshots.exec(path);
           if (calculationSnapshots) {
             const input = commandBody(request.body, ['orgId', 'from', 'to']);
@@ -278,6 +286,12 @@ export function createCarbonApi(database, {quarantine} = {}) {
         }
 
         if (method === 'GET') {
+          const internalReportDraft = routes.internalReportDraft.exec(path);
+          if (internalReportDraft) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.readInternalReportDraft(scope,
+              uuid(query.get('orgId'), '组织'), uuid(internalReportDraft[1], '任务'), uuid(internalReportDraft[2], '稿件'))};
+          }
           const calculationPreview = routes.calculationPreview.exec(path);
           if (calculationPreview) {
             queryFields(query, ['orgId', 'from', 'to']);
