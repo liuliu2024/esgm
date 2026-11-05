@@ -6,12 +6,19 @@
   <title>企业工作台</title>
   <link rel="stylesheet" href="/shared.css">
   <style>
+    body { --paper: #f4f6f9; --surface: #fff; --ink: #18263a; --muted: #465670; --line: #d5dce6; --accent: #1c487d; --accent-soft: #eaf2fc; }
+    .brand { color: var(--accent); font-weight: 700; margin-bottom: 5px; }
     .task-list { list-style: none; padding: 0; margin: 12px 0; }
     .task-list button { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; text-align: left; }
     .task-list button[aria-current="true"] { border-color: var(--accent); background: var(--accent-soft); }
     .task-list button span:first-child, #case-title, #return-reason, #evidence-items { overflow-wrap: anywhere; white-space: pre-wrap; }
     .task-list .status { flex-shrink: 0; }
-    #history summary { cursor: pointer; }
+    summary { cursor: pointer; font-weight: 650; padding-block: 8px; }
+    #activity-workflow { border-block: 1px solid var(--line); padding-block: 6px; }
+    .workflow-stage { border-top: 1px solid var(--line); padding-block: 12px; }
+    .month-range { display: flex; gap: 12px; flex-wrap: wrap; }
+    .month-range label { display: grid; gap: 4px; }
+    .workflow-stage li, #report-result { overflow-wrap: anywhere; }
     #feedback:not(:empty) { margin-block: 0 12px; }
     #submit { justify-self: start; }
   </style>
@@ -19,7 +26,7 @@
 </head>
 <body>
   <header class="heading">
-    <h1>企业工作台</h1>
+    <div><p class="brand">碳有据</p><h1>企业工作台</h1></div>
     <button id="new-case" class="primary" type="button" disabled>新建受理</button>
   </header>
   <main>
@@ -41,8 +48,13 @@
             <h2>新建受理</h2>
             <button type="button" id="cancel-create">取消</button>
           </div>
-          <label for="scenario">场景</label>
-          <select id="scenario" required><option value="">碳业务受理</option></select>
+          <label for="industry">行业</label>
+          <select id="industry" required></select>
+          <div id="scenario-picker" class="stack" hidden>
+            <label for="scenario">办理场景</label>
+            <select id="scenario" required></select>
+            <p id="scenario-context" class="muted" role="status"></p>
+          </div>
           <label for="purpose">办理用途</label>
           <textarea id="purpose" maxlength="500" required></textarea>
           <p id="create-error" role="alert"></p>
@@ -88,6 +100,45 @@
               <button type="submit">登记材料</button>
             </form>
           </section>
+          <details id="activity-workflow">
+            <summary>活动数据与演示报告</summary>
+            <section class="workflow-stage stack" aria-labelledby="import-title">
+              <h3 id="import-title">1. 预检与入账</h3>
+              <form id="activity-import">
+                <label for="activity-csv">活动数据 CSV</label>
+                <textarea id="activity-csv" spellcheck="false" required placeholder="period,source,quantity,unit"></textarea>
+                <div class="actions">
+                  <button id="activity-sample" type="button">填入演示数据</button>
+                  <button id="activity-preview" class="primary" type="submit">保存并预检</button>
+                </div>
+              </form>
+              <p id="activity-status" role="status"></p>
+              <p id="activity-error" role="alert"></p>
+              <ul id="activity-rows" class="history-list" hidden></ul>
+              <div class="actions" id="activity-actions" hidden>
+                <button id="activity-confirm" class="primary" type="button" hidden>确认入账</button>
+                <button id="activity-repreview" type="button" hidden>重新预检</button>
+              </div>
+            </section>
+            <section class="workflow-stage stack" aria-labelledby="calc-title">
+              <h3 id="calc-title">2. 合成因子核算预览</h3>
+              <form id="calc-form">
+                <div class="month-range">
+                  <label>起始月 <input id="calc-from" type="month" required></label>
+                  <label>结束月 <input id="calc-to" type="month" required></label>
+                </div>
+                <button id="calc-preview" type="submit">查看核算</button>
+              </form>
+              <p id="calc-status" role="status"></p>
+              <p id="calc-error" role="alert"></p>
+              <ul id="calc-rows" class="history-list" hidden></ul>
+            </section>
+            <section id="report-stage" class="workflow-stage stack" aria-labelledby="report-title" hidden>
+              <h3 id="report-title">3. 内部管理报告</h3>
+              <div class="actions"><button id="report-generate" class="primary" type="button">冻结结果并生成演示稿</button></div>
+              <article id="report-result" class="notice stack" tabindex="-1" hidden></article>
+            </section>
+          </details>
           <details id="history">
             <summary>办理历史</summary>
             <div id="history-events"></div>

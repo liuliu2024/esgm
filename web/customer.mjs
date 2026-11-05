@@ -22,13 +22,132 @@ const evidenceForm = element('register-evidence');
 const evidenceError = element('evidence-error');
 const base = '/v1/customer/cases';
 const notes = new Map();
+const workflows = new Map();
+const industry = element('industry');
+const scenario = element('scenario');
+const sampleCsv = 'period,source,quantity,unit\n2026-01,electricity,1000,kWh\n2026-01,natural_gas,200,m3';
+const sourceLabels = { electricity: '购入电力', natural_gas: '天然气' };
+const importActions = { insert: '新增', correct: '更正', unchanged: '无变更' };
 let context;
+let catalog = [];
 let cases = [];
 let selected;
 let cursor;
 let creating = false;
 let busy = false;
 let evidenceLoad = 0;
+let workflowCaseId;
+
+function renderScenario() {
+  const matches = catalog.filter(item => item.industryCode === industry.value);
+  const previous = scenario.value;
+  scenario.replaceChildren(new Option('请选择办理场景', ''), ...matches.map(item => new Option(item.title, item.id)));
+  if (matches.some(item => item.id === previous)) scenario.value = previous;
+  element('scenario-picker').hidden = !matches.length;
+  scenario.required = Boolean(matches.length);
+  renderScenarioContext();
+}
+
+function renderScenarioContext() {
+  const item = catalog.find(candidate => candidate.id === scenario.value);
+  element('scenario-context').textContent = item ? `${item.purpose} · 交付对象 ${item.recipient} · 适用规则待确认` : '';
+}
+
+async function loadCatalog() {
+  const {items} = await request('/v1/customer/scenarios?orgId=' + context.orgId);
+  catalog = items;
+  const industries = new Map(items.map(item => [item.industryCode, item.industryName]));
+  const previous = industry.value;
+  industry.replaceChildren(new Option('请选择行业', ''), ...Array.from(industries, ([code, name]) => new Option(name, code)));
+  if (industries.has(previous)) industry.value = previous;
+  renderScenario();
+  if (!items.length) element('create-error').textContent = '此组织暂无已发布的办理场景。';
+}
+
+function setRows(container, lines) {
+  container.replaceChildren(...lines.map(text => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    return item;
+  }));
+  container.hidden = !lines.length;
+}
+
+function calculationLine(item) {
+  const label = `${item.period} ${sourceLabels[item.source]}`;
+  if (item.status === 'missing_activity') return `${label} · 缺活动数据`;
+  return `${label} · ${item.quantity} ${item.unit} · ${item.emissionsKgCO2e} kgCO₂e`;
+}
+
+function renderWorkflow() {
+  if (!selected || creating) return;
+  if (workflowCaseId !== selected.id) {
+    workflowCaseId = selected.id;
+    element('activity-workflow').open = false;
+  }
+  if (!workflows.has(selected.id)) workflows.set(selected.id, {csv: '', from: '', to: ''});
+  const state = workflows.get(selected.id);
+  const editable = selected.status === 'draft' || selected.status === 'returned';
+  const {batch, calculation, draft} = state;
+  element('activity-import').hidden = !editable;
+  element('activity-csv').value = state.csv;
+  element('calc-from').value = state.from;
+  element('calc-to').value = state.to;
+  element('activity-error').textContent = state.importError ?? '';
+  element('calc-error').textContent = state.calcError ?? '';
+  element('activity-status').textContent = batch?.receipt
+    ? `已入账 · 新增 ${batch.receipt.inserted} · 更正 ${batch.receipt.corrected} · 无变更 ${batch.receipt.unchanged}`
+    : batch ? `预检第 ${batch.previewRevision} 版 · ${batch.status === 'blocked' ? '待修正' : '待确认'}` : '';
+  setRows(element('activity-rows'), batch ? [
+    ...batch.issues.map(issue => `第 ${issue.row} 行 · ${issue.column} · ${issue.remedy}`),
+    ...batch.preview.map(row => {
+      const quantity = row.action === 'correct' ? `${row.baseQuantity} → ${row.quantity}` : row.quantity;
+      return `${row.period} ${sourceLabels[row.source]} · ${quantity} ${row.unit} · ${importActions[row.action]}`;
+    })
+  ] : []);
+  element('activity-actions').hidden = !editable || batch?.status !== 'ready' || Boolean(batch.receipt);
+  element('activity-confirm').hidden = Boolean(state.stale);
+  element('activity-repreview').hidden = !state.stale;
+  element('calc-status').textContent = calculation ? (
+    calculation.coverage.status === 'complete' ? `覆盖完整 · ${calculation.totalKgCO2e} kgCO₂e` :
+      calculation.coverage.status === 'partial' ? `已知小计 ${calculation.knownSubtotalKgCO2e} kgCO₂e · 缺 ${calculation.coverage.missingSlots} 项` : '暂无已入账的活动数据。'
+  ) : '';
+  setRows(element('calc-rows'), calculation?.items.map(calculationLine) ?? []);
+  const report = element('report-result');
+  element('report-stage').hidden = !draft && calculation?.coverage.status !== 'complete';
+  element('report-generate').hidden = calculation?.coverage.status !== 'complete';
+  report.hidden = !draft;
+  report.replaceChildren();
+  if (draft) {
+    const heading = document.createElement('h4');
+    heading.textContent = draft.report.title;
+    const watermark = document.createElement('strong');
+    watermark.textContent = draft.report.watermark;
+    const summary = document.createElement('p');
+    summary.textContent = `${draft.report.scope.from} 至 ${draft.report.scope.to} · ${draft.report.summary.totalKgCO2e} kgCO₂e（${draft.report.summary.totalTCO2e} tCO₂e）`;
+    const rows = document.createElement('ul');
+    rows.className = 'history-list';
+    setRows(rows, draft.report.items.map(item => `${calculationLine(item)} · 源文件第 ${item.lineage.sourceRow} 行 · 活动第 ${item.lineage.activityRevision} 版 · 因子 v${item.factor.version}`));
+    report.append(heading, watermark, summary, rows);
+  }
+}
+
+async function runWorkflow(errorField, operation) {
+  if (busy || !selected || creating) return;
+  const id = selected.id;
+  const state = workflows.get(id);
+  state[errorField] = '';
+  setBusy(true);
+  try {
+    await operation(state, `${base}/${id}`, context.orgId);
+  } catch (error) {
+    if (error.code === 'IMPORT_STALE_BASELINE' || error.code === 'IMPORT_STALE_PREVIEW') state.stale = true;
+    state[errorField] = error.message;
+  } finally {
+    setBusy(false);
+    if (selected?.id === id) renderWorkflow();
+  }
+}
 
 function renderList() {
   const items = cases.map(item => {
@@ -73,6 +192,7 @@ function renderDetail() {
   correction.readOnly = !canCorrect;
   element('resubmit').hidden = !canCorrect;
   correction.value = savedNote;
+  renderWorkflow();
 }
 
 function setBusy(value) {
@@ -191,13 +311,27 @@ list.addEventListener('click', event => {
   loadEvidence();
 });
 
-newCase.addEventListener('click', () => {
+newCase.addEventListener('click', async () => {
   creating = true;
   element('create-error').textContent = '';
   renderList();
   renderDetail();
-  element('purpose').focus();
+  setBusy(true);
+  try {
+    await loadCatalog();
+  } catch (error) {
+    industry.replaceChildren(new Option('无法读取行业', ''));
+    scenario.replaceChildren();
+    renderScenario();
+    element('create-error').textContent = error.message;
+  } finally {
+    setBusy(false);
+    industry.focus();
+  }
 });
+
+industry.addEventListener('change', renderScenario);
+scenario.addEventListener('change', renderScenarioContext);
 
 element('cancel-create').addEventListener('click', () => {
   creating = false;
@@ -219,7 +353,8 @@ create.addEventListener('submit', async event => {
       purpose: element('purpose').value
     });
     creating = false;
-    element('purpose').value = '';
+    create.reset();
+    renderScenario();
     cases = [item, ...cases];
     history.open = false;
     actionError.textContent = '';
@@ -278,6 +413,85 @@ correctionForm.addEventListener('submit', event => {
 correction.addEventListener('input', () => notes.set(selected.id, correction.value));
 history.addEventListener('toggle', loadHistory);
 
+element('activity-csv').addEventListener('input', event => {
+  const state = workflows.get(selected.id);
+  state.csv = event.target.value;
+  if (!state.batch && !state.importError) return;
+  state.batch = null;
+  state.stale = false;
+  state.importError = '';
+  renderWorkflow();
+});
+
+element('activity-sample').addEventListener('click', () => {
+  const state = workflows.get(selected.id);
+  Object.assign(state, {csv: sampleCsv, from: '2026-01', to: '2026-01', batch: null, calculation: null, draft: null,
+    stale: false, importError: '', calcError: ''});
+  renderWorkflow();
+  element('activity-csv').focus();
+});
+
+element('activity-import').addEventListener('submit', async event => {
+  event.preventDefault();
+  await runWorkflow('importError', async (state, path, orgId) => {
+    state.batch = await request(path + '/imports', {orgId, csv: state.csv});
+    state.stale = false;
+  });
+  if (!element('activity-actions').hidden) element('activity-confirm').focus();
+});
+
+element('activity-confirm').addEventListener('click', async () => {
+  await runWorkflow('importError', async (state, path, orgId) => {
+    const {batchId, previewRevision} = state.batch;
+    state.batch.receipt = await request(`${path}/imports/${batchId}/commit`, {orgId, previewRevision});
+    state.calculation = null;
+    state.draft = null;
+  });
+  if (!element('activity-repreview').hidden) element('activity-repreview').focus();
+  else if (element('activity-actions').hidden) element('calc-from').focus();
+});
+
+element('activity-repreview').addEventListener('click', async () => {
+  await runWorkflow('importError', async (state, path, orgId) => {
+    const batchPath = `${path}/imports/${state.batch.batchId}`;
+    const latest = await request(`${batchPath}?orgId=${orgId}`);
+    state.batch = latest.receipt ? latest : await request(`${batchPath}/repreview`, {orgId, previewRevision: latest.previewRevision});
+    state.stale = false;
+  });
+  if (!element('activity-actions').hidden && !element('activity-confirm').hidden) element('activity-confirm').focus();
+});
+
+for (const bound of ['from', 'to']) {
+  element(`calc-${bound}`).addEventListener('change', event => {
+    const state = workflows.get(selected.id);
+    state[bound] = event.target.value;
+    state.calculation = null;
+    state.draft = null;
+    state.calcError = '';
+    renderWorkflow();
+  });
+}
+
+element('calc-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  await runWorkflow('calcError', async (state, path, orgId) => {
+    const {from, to} = state;
+    const query = new URLSearchParams({orgId, from, to});
+    state.calculation = await request(`${path}/calculation-preview?${query}`);
+  });
+});
+
+element('report-generate').addEventListener('click', async () => {
+  let generated = false;
+  await runWorkflow('calcError', async (state, path, orgId) => {
+    const {from, to} = state.calculation;
+    const {snapshotId} = await request(`${path}/calculation-snapshots`, {orgId, from, to});
+    state.draft = await request(`${path}/internal-report-drafts`, {orgId, snapshotId});
+    generated = true;
+  });
+  if (generated) element('report-result').focus();
+});
+
 evidenceForm.addEventListener('submit', async event => {
   event.preventDefault();
   const item = selected;
@@ -333,7 +547,6 @@ refresh.addEventListener('click', async () => {
 
 try {
   context = await getContext();
-  element('scenario').options[0].value = context.scenarioReleaseId;
   await loadPage();
   newCase.disabled = false;
   refresh.disabled = false;

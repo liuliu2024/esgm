@@ -42,6 +42,21 @@ test('three preview entries use the same intake and review workflow', async () =
     assert.equal(activity.status, 'ready');
     assert.equal(activity.preview[0].quantity, '1000');
     assert.equal(activity.preview[0].unit, 'kWh');
+    const imported = await post(customer + '/imports', {
+      orgId, csv: 'period,source,quantity,unit\n2026-01,electricity,1,MWh\n2026-01,natural_gas,200,m3'
+    });
+    const confirmed = await post(`${customer}/imports/${imported.batchId}/commit`, {
+      orgId, previewRevision: imported.previewRevision
+    });
+    assert.equal(confirmed.inserted, 2);
+    const range = { orgId, from: '2026-01', to: '2026-01' };
+    const calculation = await read(`${customer}/calculation-preview?${new URLSearchParams(range)}`);
+    assert.equal(calculation.totalKgCO2e, '900');
+    const snapshot = await post(customer + '/calculation-snapshots', range, 201);
+    const draft = await post(customer + '/internal-report-drafts', { orgId, snapshotId: snapshot.snapshotId }, 201);
+    assert.equal(draft.report.watermark, '内部演示｜合成因子｜禁止外发');
+    assert.equal(draft.report.summary.totalTCO2e, '0.9');
+    assert.equal(draft.externalDeliveryEligible, false);
     const evidence = await post(customer + '/evidence', {
       orgId, title: '月度用电账单', sourceDescription: '园区供电结算记录'
     }, 201);
