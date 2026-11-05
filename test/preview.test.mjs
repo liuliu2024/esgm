@@ -11,6 +11,7 @@ test('three preview entries use the same intake and review workflow', async () =
       const html = await response.text();
       assert.match(html, new RegExp(title));
       assert.doesNotMatch(html, /演示角色|架构与 AI/);
+      if (path !== '/admin') assert.match(html, /材料清单/);
     }
     const read = async path => {
       const response = await fetch(preview.origin + path);
@@ -30,6 +31,10 @@ test('three preview entries use the same intake and review workflow', async () =
     }, 201);
     const customer = `/v1/customer/cases/${created.id}`;
     const professional = `/v1/professional/cases/${created.id}`;
+    const evidence = await post(customer + '/evidence', {
+      orgId, title: '月度用电账单', sourceDescription: '园区供电结算记录'
+    }, 201);
+    assert.equal(evidence.status, 'pending_file');
     const submitted = await post(customer + '/submit', { orgId, revision: created.revision });
     const returned = await post(professional + '/review', {
       orgId, revision: submitted.revision, decision: 'returned', reason: '补充报告期间'
@@ -39,6 +44,8 @@ test('three preview entries use the same intake and review workflow', async () =
     });
     const reviewQueue = await read(`/v1/professional/cases?orgId=${orgId}`);
     assert.equal(reviewQueue.cases[0].nextAction, 'review');
+    const reviewedMaterials = await read(professional + `/evidence?orgId=${orgId}`);
+    assert.deepEqual(reviewedMaterials.items.map(item => [item.title, item.status]), [['月度用电账单', 'pending_file']]);
     const approved = await post(professional + '/review', {
       orgId, revision: resubmitted.revision, decision: 'approved'
     });

@@ -18,7 +18,7 @@ npm test
 - 专业作业台 `http://127.0.0.1:4173/professional`
 - 组织审计 `http://127.0.0.1:4173/admin`
 
-用企业页新建并提交，专业页退回，企业页补正重提，再从专业页批准。管理页可查看每次操作、退回理由和补正。预览服务只监听本机，使用临时库和演示身份。
+用企业页新建受理、登记材料清单并提交，专业页退回，企业页补正重提，再从专业页批准。管理页可查看每次操作、退回理由和补正。预览服务只监听本机，使用临时库和演示身份。
 
 ## 模块
 
@@ -43,6 +43,8 @@ npm test
 | 客户 | `POST /v1/customer/cases/:id/resubmit` | `orgId, revision, correctionNote` |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases` | `orgId`，可选 `limit, cursor` |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/history` | `orgId`，返回有权查看的状态历史 |
+| 客户 | `POST /v1/customer/cases/:id/evidence` | `orgId, title, sourceDescription`，本人草稿或退回任务的待补文件登记 |
+| 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/evidence` | `orgId`，返回有权查看的材料清单 |
 | 专业复核人 | `GET /v1/professional/cases/:id` | 查询参数 `orgId` |
 | 专业复核人 | `POST /v1/professional/cases/:id/review` | `orgId, revision, decision`。退回时必填 `reason` |
 | 组织管理员 | `GET /v1/admin/organizations/:orgId/audit` | 可选 `limit, offset` |
@@ -52,6 +54,6 @@ npm test
 
 用专用空数据库和受信迁移账号运行 `npm run migrate`，连接由 `MIGRATION_DATABASE_URL` 提供。迁移会创建 `carbon` 业务架构及 `carbon_app` 权限角色。应用连接使用独立 LOGIN 角色，由部署方授予 `carbon_app` 成员资格。迁移账号持有建库对象、建角色所需权限，应用账号只持有业务权限。数据库 URL 由部署密钥管理提供。
 
-初始迁移用于独立空库。已登记迁移通过校验和保持不可变，`002_corrections.sql` 可在原迁移已应用的数据库增量执行。初次接入需建立工作空间、组织授权和已发布场景版本。
+初始迁移用于独立空库。已登记迁移通过校验和保持不可变。`002_corrections.sql` 和 `003_evidence_register.sql` 可在前序迁移已应用的数据库增量执行。初次接入需建立工作空间、组织授权和已发布场景版本。
 
-正式接入前须通过身份集成、实际 PostgreSQL 连接池和并发验证、环境隔离及恢复演练。下一切片为证据登记及提交版本绑定。详见 [需求详细设计](docs/detailed-design.md)、[三端界面交接](docs/ui-handoff.md) 和 [证据设计](docs/evidence-design.md)。
+GitHub Actions 在临时 PostgreSQL 17 验证连接池上下文和并行复核。正式接入前须完成身份集成、目标环境隔离及恢复演练。材料清单后续接文件接收、扫描及提交版本引用。详见 [需求详细设计](docs/detailed-design.md)、[三端界面交接](docs/ui-handoff.md) 和 [证据设计](docs/evidence-design.md)。

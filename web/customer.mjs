@@ -16,6 +16,10 @@ const history = element('history');
 const historyEvents = element('history-events');
 const actionError = element('action-error');
 const feedback = element('feedback');
+const evidenceState = element('evidence-state');
+const evidenceItems = element('evidence-items');
+const evidenceForm = element('register-evidence');
+const evidenceError = element('evidence-error');
 const base = '/v1/customer/cases';
 const notes = new Map();
 let context;
@@ -24,6 +28,7 @@ let selected;
 let cursor;
 let creating = false;
 let busy = false;
+let evidenceLoad = 0;
 
 function renderList() {
   const items = cases.map(item => {
@@ -62,6 +67,7 @@ function renderDetail() {
   element('return-reason').textContent = selected.returnReason ?? '';
   submit.hidden = selected.status !== 'draft';
   const canCorrect = selected.status === 'returned';
+  evidenceForm.hidden = selected.status !== 'draft' && !canCorrect;
   const savedNote = notes.get(selected.id) ?? '';
   correctionForm.hidden = !canCorrect && !savedNote;
   correction.readOnly = !canCorrect;
@@ -71,7 +77,7 @@ function renderDetail() {
 
 function setBusy(value) {
   busy = value;
-  for (const control of document.querySelectorAll('button, select, textarea')) {
+  for (const control of document.querySelectorAll('button, input, select, textarea')) {
     control.disabled = value;
   }
 }
@@ -109,9 +115,35 @@ async function loadHistory() {
   }
 }
 
+async function loadEvidence() {
+  const item = selected;
+  if (!item || creating) return;
+  const load = ++evidenceLoad;
+  evidenceState.textContent = '正在读取材料…';
+  evidenceItems.replaceChildren();
+  try {
+    const { items } = await request(base + '/' + item.id + '/evidence?orgId=' + context.orgId);
+    if (selected !== item || creating || load !== evidenceLoad) return;
+    evidenceState.textContent = items.length ? '' : '暂无登记材料';
+    for (const evidence of items) {
+      const entry = document.createElement('li');
+      const title = document.createElement('strong');
+      title.textContent = evidence.title + ' · ' + (evidence.status === 'pending_file' ? '待补文件' : evidence.status);
+      const source = document.createElement('p');
+      source.textContent = evidence.sourceDescription;
+      entry.append(title, source);
+      evidenceItems.append(entry);
+    }
+  } catch (error) {
+    if (selected === item && !creating && load === evidenceLoad) evidenceState.textContent = error.message;
+  }
+}
+
 list.addEventListener('click', event => {
   const button = event.target.closest('button[data-id]');
   if (!button) return;
+  if (selected?.id !== button.dataset.id) evidenceForm.reset();
+  evidenceError.textContent = '';
   selected = cases.find(item => item.id === button.dataset.id);
   creating = false;
   history.open = false;
@@ -120,6 +152,7 @@ list.addEventListener('click', event => {
   renderList();
   renderDetail();
   title.focus();
+  loadEvidence();
 });
 
 newCase.addEventListener('click', () => {
@@ -135,6 +168,7 @@ element('cancel-create').addEventListener('click', () => {
   renderList();
   renderDetail();
   newCase.focus();
+  loadEvidence();
 });
 
 create.addEventListener('submit', async event => {
@@ -153,8 +187,11 @@ create.addEventListener('submit', async event => {
     cases = [item, ...cases];
     history.open = false;
     actionError.textContent = '';
+    evidenceForm.reset();
+    evidenceError.textContent = '';
     updateCase(item);
     feedback.textContent = '草稿已保存。';
+    await loadEvidence();
   } catch (error) {
     errorMessage.textContent = error.message;
   } finally {
@@ -177,7 +214,7 @@ async function sendCase(isCorrection) {
     notes.delete(item.id);
     updateCase(current);
     feedback.textContent = '已提交复核。';
-    await loadHistory();
+    await Promise.all([loadHistory(), loadEvidence()]);
   } catch (error) {
     actionError.textContent = error.message;
     if (error.status === 409) {
@@ -185,7 +222,7 @@ async function sendCase(isCorrection) {
         updateCase(await request(base + '/' + item.id + '?orgId=' + context.orgId));
         feedback.textContent = '已刷新为最新状态。';
         if (isCorrection && correction.readOnly) actionError.textContent = '任务状态已变化。本次补正未提交。';
-        await loadHistory();
+        await Promise.all([loadHistory(), loadEvidence()]);
       } catch (refreshError) {
         feedback.textContent = refreshError.message;
       }
@@ -204,6 +241,29 @@ correctionForm.addEventListener('submit', event => {
 });
 correction.addEventListener('input', () => notes.set(selected.id, correction.value));
 history.addEventListener('toggle', loadHistory);
+
+evidenceForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const item = selected;
+  if (busy || !item || evidenceForm.hidden) return;
+  evidenceError.textContent = '';
+  feedback.textContent = '';
+  setBusy(true);
+  try {
+    await request(base + '/' + item.id + '/evidence', {
+      orgId: context.orgId,
+      title: element('evidence-title').value,
+      sourceDescription: element('evidence-source').value
+    });
+    evidenceForm.reset();
+    feedback.textContent = '材料已登记。';
+    await loadEvidence();
+  } catch (error) {
+    evidenceError.textContent = error.message;
+  } finally {
+    setBusy(false);
+  }
+});
 
 more.addEventListener('click', async () => {
   setBusy(true);
@@ -224,7 +284,7 @@ refresh.addEventListener('click', async () => {
     await loadPage();
     if (selected && !creating) {
       updateCase(await request(base + '/' + selected.id + '?orgId=' + context.orgId));
-      await loadHistory();
+      await Promise.all([loadHistory(), loadEvidence()]);
     }
     feedback.textContent = '已刷新。';
   } catch (error) {

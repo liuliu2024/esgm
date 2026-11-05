@@ -5,6 +5,7 @@ const routes = {
   cases: /^\/v1\/(customer|professional)\/cases$/,
   case: /^\/v1\/(customer|professional)\/cases\/([^/]+)$/,
   history: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/history$/,
+  evidence: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/evidence$/,
   submit: /^\/v1\/customer\/cases\/([^/]+)\/submit$/,
   resubmit: /^\/v1\/customer\/cases\/([^/]+)\/resubmit$/,
   review: /^\/v1\/professional\/cases\/([^/]+)\/review$/,
@@ -54,9 +55,9 @@ function revision(value) {
   return value;
 }
 
-function requiredText(value, label) {
-  if (typeof value !== 'string' || !value.trim() || /\u0000/.test(value) || [...value.trim()].length > 500) {
-    badRequest(`请填写${label}，最多 500 个字符。`);
+function requiredText(value, label, maximum = 500) {
+  if (typeof value !== 'string' || !value.trim() || /\u0000/.test(value) || [...value.trim()].length > maximum) {
+    badRequest(`请填写${label}，最多 ${maximum} 个字符。`);
   }
   return value.trim();
 }
@@ -140,6 +141,13 @@ export function createCarbonApi(database) {
               purpose: requiredText(input.purpose, '办理用途')
             })};
           }
+          const evidence = routes.evidence.exec(path);
+          if (evidence?.[1] === 'customer') {
+            const input = commandBody(request.body, ['orgId', 'title', 'sourceDescription']);
+            return {status: 201, body: await intake.registerEvidence(scope,
+              uuid(input.orgId, '组织'), uuid(evidence[2], '任务'), requiredText(input.title, '材料标题', 200),
+              requiredText(input.sourceDescription, '材料来源说明', 1000))};
+          }
           const submit = routes.submit.exec(path);
           if (submit) {
             const input = commandBody(request.body, ['orgId', 'revision']);
@@ -183,6 +191,12 @@ export function createCarbonApi(database) {
             queryFields(query, ['orgId']);
             return {status: 200, body: await intake.history(scope,
               uuid(query.get('orgId'), '组织'), uuid(history[2], '任务'), history[1] === 'customer')};
+          }
+          const evidence = routes.evidence.exec(path);
+          if (evidence) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.listEvidence(scope,
+              uuid(query.get('orgId'), '组织'), uuid(evidence[2], '任务'), evidence[1] === 'customer')};
           }
           const administration = routes.administration.exec(path);
           if (administration) {

@@ -9,7 +9,7 @@
     .task-list { list-style: none; padding: 0; margin: 12px 0; }
     .task-list button { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; text-align: left; }
     .task-list button[aria-current="true"] { border-color: var(--accent); background: var(--accent-soft); }
-    .task-list button span:first-child, #case-title, #return-reason { overflow-wrap: anywhere; white-space: pre-wrap; }
+    .task-list button span:first-child, #case-title, #return-reason, #evidence-items { overflow-wrap: anywhere; white-space: pre-wrap; }
     .task-list .status { flex-shrink: 0; }
     #history summary { cursor: pointer; }
     #feedback:not(:empty) { margin-block: 0 12px; }
@@ -65,6 +65,19 @@
             <button id="resubmit" class="primary" type="submit">补正并重新提交</button>
           </form>
           <p id="action-error" role="alert"></p>
+          <section class="stack" aria-labelledby="evidence-heading">
+            <h3 id="evidence-heading">材料清单</h3>
+            <p id="evidence-state" class="muted" role="status"></p>
+            <ul id="evidence-items" class="history-list"></ul>
+            <form id="register-evidence" hidden>
+              <label for="evidence-title">材料名称</label>
+              <input id="evidence-title" maxlength="200" required>
+              <label for="evidence-source">来源说明</label>
+              <textarea id="evidence-source" maxlength="1000" required></textarea>
+              <p id="evidence-error" role="alert"></p>
+              <button type="submit">登记材料</button>
+            </form>
+          </section>
           <details id="history">
             <summary>办理历史</summary>
             <div id="history-events"></div>

@@ -13,6 +13,8 @@ const reviewError = document.querySelector('#review-error');
 const approveButton = document.querySelector('#approve');
 const returnButton = document.querySelector('#return');
 const history = document.querySelector('#history');
+const evidenceStatus = document.querySelector('#evidence-status');
+const evidenceList = document.querySelector('#evidence-list');
 const drafts = new Map();
 let orgId;
 let selected;
@@ -58,9 +60,35 @@ async function loadCase(item, focus = false) {
     if (viewing !== selection) return;
     const canReview = item.nextAction === 'review' && current.status === 'submitted';
     selected = { ...current, nextAction: canReview ? 'review' : 'none' };
+    evidenceList.replaceChildren();
+    evidenceList.hidden = true;
+    evidenceStatus.textContent = '正在加载材料';
     drawCase(current, canReview);
     renderHistory(history, events);
     if (focus) document.querySelector('#detail-heading').focus();
+    void request(`${base}/evidence?${query}`).then(({ items }) => {
+      if (viewing !== selection) return;
+      for (const item of items) {
+        const row = document.createElement('li');
+        const title = document.createElement('strong');
+        const source = document.createElement('p');
+        title.textContent = item.title;
+        source.textContent = `来源：${item.sourceDescription}`;
+        row.append(title);
+        if (item.status === 'pending_file') {
+          const status = document.createElement('span');
+          status.className = 'status';
+          status.textContent = '待补文件';
+          row.append(' ', status);
+        }
+        row.append(source);
+        evidenceList.append(row);
+      }
+      evidenceList.hidden = items.length === 0;
+      evidenceStatus.textContent = evidenceList.hidden ? '暂无登记材料' : '';
+    }).catch(error => {
+      if (viewing === selection) evidenceStatus.textContent = `材料加载失败：${error.message}`;
+    });
   } catch (error) {
     if (viewing !== selection) return;
     selected = undefined;

@@ -13,6 +13,8 @@ const caseFields = `id, org_id AS "orgId", scenario_release_id AS "scenarioRelea
   correction_note AS "correctionNote"`;
 const eventFields = `id, case_id AS "caseId", actor_id AS "actorId", action, reason, revision,
   correction_note AS "correctionNote", request_id AS "requestId", created_at AS "createdAt"`;
+const evidenceFields = `id, case_id AS "caseId", org_id AS "orgId", registered_by AS "registeredBy",
+  title, source_description AS "sourceDescription", created_at AS "createdAt", 'pending_file' AS status`;
 
 function accessDenied() {
   return new CarbonError(403, 'ACCESS_DENIED', '你没有该组织的操作权限。');
@@ -145,6 +147,33 @@ export function createIntakeService(database) {
           ORDER BY revision, id
         `, [scope.tenantId, orgId, id]);
         return {events: result.rows};
+      });
+    },
+
+    registerEvidence(scope, orgId, id, title, sourceDescription) {
+      return inWorkspace(scope, async tx => {
+        const task = await readVisibleCase(tx, scope, orgId, id, true);
+        if (task.status !== 'draft' && task.status !== 'returned') {
+          throw new CarbonError(409, 'CASE_CONFLICT', '任务当前不能登记材料，请刷新后查看状态。');
+        }
+        const result = await tx.query(`
+          INSERT INTO carbon.case_evidence (tenant_id, org_id, case_id, id, registered_by, title, source_description)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+          RETURNING ${evidenceFields}
+        `, [scope.tenantId, orgId, id, randomUUID(), scope.actorId, title, sourceDescription]);
+        return result.rows[0];
+      });
+    },
+
+    listEvidence(scope, orgId, id, customerOnly) {
+      return inWorkspace(scope, async tx => {
+        await readVisibleCase(tx, scope, orgId, id, customerOnly);
+        const result = await tx.query(`
+          SELECT ${evidenceFields} FROM carbon.case_evidence
+          WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3
+          ORDER BY created_at, id
+        `, [scope.tenantId, orgId, id]);
+        return {items: result.rows};
       });
     },
 
