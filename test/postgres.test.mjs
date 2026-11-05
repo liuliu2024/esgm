@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
+import { createEvidenceScanner } from '../infra/evidence-scanner.mjs';
+import { createLocalQuarantine } from '../infra/local-quarantine.mjs';
 import { connectPostgres } from '../infra/postgres.mjs';
 import { migrate } from '../infra/migrations.mjs';
 import { createCarbonApi } from '../src/index.mjs';
 
 const migrationUrl = process.env.CARBON_TEST_MIGRATION_DATABASE_URL;
 const runtimeUrl = process.env.CARBON_TEST_APP_DATABASE_URL;
+const scannerUrl = process.env.CARBON_TEST_SCANNER_DATABASE_URL;
 
 test('PostgreSQL 17 connection pool isolates context and resolves competing reviews', {
   skip: !migrationUrl && !runtimeUrl
@@ -17,12 +20,15 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
   assert.equal(new URL(runtimeUrl).username, 'carbon_test_app');
   const admin = connectPostgres(migrationUrl, { migration: true });
   const runtime = connectPostgres(runtimeUrl, { max: 3 });
+  const quarantine = await createLocalQuarantine();
+  const scannerDatabase = scannerUrl && connectPostgres(scannerUrl, { scanner: true });
   try {
     await migrate(admin);
     const tenantId = randomUUID(), orgId = randomUUID(), scenarioReleaseId = randomUUID();
     const customer = randomUUID(), reviewer = randomUUID(), administrator = randomUUID();
     await admin.transaction(async tx => {
       await tx.query('GRANT carbon_app TO carbon_test_app');
+      if (scannerDatabase) await tx.query('GRANT carbon_scanner TO carbon_test_scanner');
       await tx.query("INSERT INTO carbon.workspace (id, name) VALUES ($1, 'Postgres integration')", [tenantId]);
       await tx.query("INSERT INTO carbon.organization (tenant_id, id, name) VALUES ($1, $2, 'Integration org')", [tenantId, orgId]);
       await tx.query("INSERT INTO carbon.scenario_release (tenant_id, id, code, version, manifest) VALUES ($1, $2, 'intake', 1, '{}')", [tenantId, scenarioReleaseId]);
@@ -31,12 +37,40 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
           [tenantId, orgId, actor, role]);
       }
     });
-    const api = createCarbonApi(runtime);
-    const dispatch = (actorId, method, path, body) =>
-      api.dispatch({ method, path, body }, { tenantId, actorId, requestId: randomUUID() });
+    const api = createCarbonApi(runtime, { quarantine });
+    const dispatch = (actorId, method, path, body, contentType) =>
+      api.dispatch({ method, path, body, contentType }, { tenantId, actorId, requestId: randomUUID() });
     const created = await dispatch(customer, 'POST', '/v1/customer/cases', { orgId, scenarioReleaseId, purpose: '并行复核验证' });
     assert.equal(created.status, 201);
     const id = created.body.id;
+    if (scannerDatabase) {
+      assert.equal(new URL(scannerUrl).pathname, '/carbon_test');
+      assert.equal(new URL(scannerUrl).username, 'carbon_test_scanner');
+      const registered = await dispatch(customer, 'POST', `/v1/customer/cases/${id}/evidence`, {
+        orgId, title: '扫描集成样例', sourceDescription: '测试数据'
+      });
+      assert.equal(registered.status, 201);
+      const evidenceId = registered.body.id;
+      const bytes = Buffer.from('%PDF-1.7\nscanner integration fixture');
+      const file = await dispatch(customer, 'POST', `/v1/customer/cases/${id}/evidence/${evidenceId}/file?orgId=${orgId}`,
+        bytes, 'application/pdf');
+      assert.equal(file.status, 201);
+
+      let scannerCalls = 0;
+      const scanReceipt = createEvidenceScanner({ database: scannerDatabase, quarantine, scanner: async input => {
+        assert.deepEqual(input, bytes);
+        scannerCalls += 1;
+        return { verdict: 'pass', engine: 'test-fixture', signatureVersion: 'fixture-1' };
+      } });
+      await assert.rejects(scanReceipt(randomUUID(), file.body.id), /No receipt/);
+      const mismatchedScan = createEvidenceScanner({ database: scannerDatabase,
+        quarantine: { read: async () => Buffer.alloc(bytes.length) }, scanner: () => assert.fail('Invalid bytes were sent to scanner') });
+      await assert.rejects(mismatchedScan(tenantId, file.body.id), /do not match/);
+      assert.deepEqual(await scanReceipt(tenantId, file.body.id), { receiptId: file.body.id, verdict: 'pass' });
+      assert.deepEqual(await scanReceipt(tenantId, file.body.id), { receiptId: file.body.id, verdict: 'pass' });
+      assert.equal(scannerCalls, 1);
+      await assert.rejects(scannerDatabase.transaction(tx => tx.query('SELECT id FROM carbon.case_intake')), { code: '42501' });
+    }
     const submitted = await dispatch(customer, 'POST', `/v1/customer/cases/${id}/submit`, { orgId, revision: 1 });
     assert.equal(submitted.status, 200);
 
@@ -54,6 +88,6 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
     const { rows } = await runtime.transaction(tx => tx.query('SELECT id FROM carbon.case_intake'));
     assert.equal(rows.length, 0, 'an unscoped pool checkout must see no cases');
   } finally {
-    await Promise.all([runtime.close(), admin.close()]);
+    await Promise.all([runtime.close(), admin.close(), scannerDatabase?.close(), quarantine.close()]);
   }
 });

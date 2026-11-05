@@ -1,6 +1,6 @@
 import pg from 'pg';
 
-export function connectPostgres(connectionString, { migration = false, max = 4 } = {}) {
+export function connectPostgres(connectionString, { migration = false, scanner = false, max = 4 } = {}) {
   if (!connectionString) throw new Error('Database connection string is required');
   const pool = new pg.Pool({ connectionString, max, connectionTimeoutMillis: 5000 });
   return {
@@ -14,9 +14,11 @@ export function connectPostgres(connectionString, { migration = false, max = 4 }
             NOT role.rolsuper AND NOT role.rolbypassrls
             AND NOT role.rolcreaterole AND NOT role.rolcreatedb
             AND NOT pg_has_role(current_user, schema.nspowner, 'USAGE')
-            AND pg_has_role(current_user, 'carbon_app', 'USAGE') AS runtime_ok
+            AND pg_has_role(current_user, $1::name, 'USAGE')
+            AND NOT pg_has_role(current_user, $2::name, 'MEMBER') AS runtime_ok
             FROM pg_roles role CROSS JOIN pg_namespace schema
-            WHERE role.rolname = current_user AND schema.nspname = 'carbon'`);
+            WHERE role.rolname = current_user AND schema.nspname = 'carbon'`, scanner
+            ? ['carbon_scanner', 'carbon_app'] : ['carbon_app', 'carbon_scanner']);
           if (!rows[0]?.runtime_ok) throw new Error('Refusing an overprivileged or unconfigured runtime database role');
           await client.query("SET LOCAL statement_timeout = '10s'");
         }

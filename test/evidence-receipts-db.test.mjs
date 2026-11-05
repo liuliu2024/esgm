@@ -75,7 +75,7 @@ before(async () => {
 after(async () => { await db?.close(); });
 
 test('004 upgrades a populated 003 database without changing registered materials', async () => {
-  assert.deepEqual(await migrate(db.admin), ['004_evidence_receipts.sql']);
+  assert.deepEqual(await migrate(db.admin), ['004_evidence_receipts.sql', '005_evidence_scan.sql']);
   assert.deepEqual(await migrate(db.admin), []);
   await asActor(customer, async tx => {
     const {rows} = await tx.query('SELECT * FROM carbon.case_evidence ORDER BY title');
@@ -123,6 +123,49 @@ test('receipt reads follow intake scope and receipt rows are immutable', async (
   const remove = tx => tx.query('DELETE FROM carbon.evidence_receipt WHERE evidence_id = $1', [evidence]);
   await assert.rejects(asActor(customer, change), {code: '42501'});
   await assert.rejects(asActor(customer, remove), {code: '42501'});
+  await assert.rejects(db.admin.transaction(change), {code: '55000'});
+  await assert.rejects(db.admin.transaction(remove), {code: '55000'});
+});
+
+test('terminal scans are immutable, scoped to exact bytes, and writable only by the scanner', async () => {
+  const scanAs = (workspace, callback) => db.admin.transaction(async tx => {
+    await tx.exec('SET LOCAL ROLE carbon_scanner');
+    await tx.query("SELECT set_config('carbon.tenant_id', $1, true)", [workspace]);
+    return callback(tx);
+  });
+  const findReceipt = tx => tx.query('SELECT id, sha256 FROM carbon.evidence_receipt WHERE evidence_id = $1', [evidence]);
+  const {rows: [receipt]} = await scanAs(tenant, findReceipt);
+  assert.ok(receipt);
+  assert.deepEqual((await scanAs(otherTenant, findReceipt)).rows, []);
+
+  const insertScan = (tx, {digest = receipt.sha256, verdict = 'pass', organization = org} = {}) => tx.query(`
+    INSERT INTO carbon.evidence_scan
+      (tenant_id, org_id, case_id, evidence_id, receipt_id, sha256, verdict, engine, signature_version)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, 'test scanner', 'test signatures')
+    RETURNING verdict, scanned_at`,
+  [tenant, organization, caseId, evidence, receipt.id, digest, verdict]);
+  await assert.rejects(asActor(customer, insertScan), {code: '42501'});
+  await assert.rejects(asActor(reviewer, insertScan), {code: '42501'});
+  await assert.rejects(scanAs(otherTenant, insertScan), {code: '42501'});
+  await assert.rejects(scanAs(tenant, tx => insertScan(tx, {digest: 'b'.repeat(64)})), {code: '23503'});
+  await assert.rejects(scanAs(tenant, tx => insertScan(tx, {organization: siblingOrg})), {code: '23503'});
+  await assert.rejects(scanAs(tenant, tx => insertScan(tx, {verdict: 'error'})), {code: '23514'});
+  const {rows: [stored]} = await scanAs(tenant, insertScan);
+  assert.equal(stored.verdict, 'pass');
+  assert.ok(stored.scanned_at instanceof Date);
+  await assert.rejects(scanAs(tenant, tx => insertScan(tx, {verdict: 'rejected'})), {code: '23505'});
+  const readScan = tx => tx.query('SELECT verdict FROM carbon.evidence_scan WHERE receipt_id = $1', [receipt.id]);
+  for (const actor of [customer, reviewer]) {
+    assert.deepEqual((await asActor(actor, readScan)).rows, [{verdict: 'pass'}]);
+  }
+  for (const actor of [peer, siblingCustomer]) {
+    assert.deepEqual((await asActor(actor, readScan)).rows, []);
+  }
+  assert.deepEqual((await scanAs(otherTenant, readScan)).rows, []);
+  const change = tx => tx.query("UPDATE carbon.evidence_scan SET verdict = 'rejected' WHERE receipt_id = $1", [receipt.id]);
+  const remove = tx => tx.query('DELETE FROM carbon.evidence_scan WHERE receipt_id = $1', [receipt.id]);
+  await assert.rejects(scanAs(tenant, change), {code: '42501'});
+  await assert.rejects(scanAs(tenant, remove), {code: '42501'});
   await assert.rejects(db.admin.transaction(change), {code: '55000'});
   await assert.rejects(db.admin.transaction(remove), {code: '55000'});
 });

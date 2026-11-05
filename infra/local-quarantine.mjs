@@ -1,10 +1,13 @@
-import { mkdtemp, open, readdir, rmdir, unlink } from 'node:fs/promises';
+import { mkdtemp, open, readdir, readFile, rmdir, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 export async function createLocalQuarantine() {
   const directory = await mkdtemp(join(tmpdir(), 'carbon-quarantine-'));
   return {
+    read(id) {
+      return readFile(join(directory, id));
+    },
     async write(id, bytes) {
       const path = join(directory, id);
       const handle = await open(path, 'wx', 0o600);

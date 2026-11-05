@@ -67,7 +67,8 @@ function transition(client, caseId, expectedRevision, status) {
 }
 
 test('empty database applies migration once and replay preserves its ledger', async () => {
-  assert.deepEqual(applied, ['001_core.sql', '002_corrections.sql', '003_evidence_register.sql', '004_evidence_receipts.sql']);
+  assert.deepEqual(applied, ['001_core.sql', '002_corrections.sql', '003_evidence_register.sql',
+    '004_evidence_receipts.sql', '005_evidence_scan.sql']);
   assert.deepEqual(await migrate(db.admin), []);
   const { rows } = await db.admin.transaction(client => client.query(
     'SELECT name FROM carbon_migrations.applied ORDER BY name'));
@@ -106,7 +107,8 @@ test('upgrade a returned 001 intake and preserve two corrections and their revie
   await act(customer, client => transition(client, caseId, 1, 'submitted'));
   const returned = await act(reviewer, client => returnIntake(client, 2, originalReason));
   assert.deepEqual(returned.rows, [{ status: 'returned', revision: 3 }]);
-  assert.deepEqual(await migrate(legacy.admin), ['002_corrections.sql', '003_evidence_register.sql', '004_evidence_receipts.sql']);
+  assert.deepEqual(await migrate(legacy.admin), ['002_corrections.sql', '003_evidence_register.sql',
+    '004_evidence_receipts.sql', '005_evidence_scan.sql']);
   assert.deepEqual(await migrate(legacy.admin), []);
 
   const upgraded = await act(customer, client => client.query(`SELECT status, revision, return_reason, correction_note

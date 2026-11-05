@@ -24,6 +24,7 @@ jobs:
     env:
       CARBON_TEST_MIGRATION_DATABASE_URL: postgres://postgres:integration_only@127.0.0.1:5432/carbon_test
       CARBON_TEST_APP_DATABASE_URL: postgres://carbon_test_app:integration_app_only@127.0.0.1:5432/carbon_test
+      CARBON_TEST_SCANNER_DATABASE_URL: postgres://carbon_test_scanner:integration_scan_only@127.0.0.1:5432/carbon_test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -37,5 +38,6 @@ jobs:
           docker exec ${{ job.services.postgres.id }}
           psql -v ON_ERROR_STOP=1 -U postgres -d carbon_test
           -c "CREATE ROLE carbon_test_app LOGIN PASSWORD 'integration_app_only'"
+          -c "CREATE ROLE carbon_test_scanner LOGIN PASSWORD 'integration_scan_only'"
       - run: npm ci --ignore-scripts
       - run: npm test
