@@ -52,9 +52,12 @@
 | `POST` | `{orgId,recipient,purpose,includeMonthly,includeFactor}`。首次返回 201，相同收件方、用途及字段范围重放返回 200 和原记录 |
 | `GET` | `?orgId=…`，返回该稿的具名记录和 SHA-256 |
 | `GET /:deliveryId` | `?orgId=…`，可用时同时返回冻结的 `documentHtml`。旧稿仍可查记录，下载字段为空 |
+| `GET /:deliveryId/pdf` | `?orgId=…`，返回 `application/pdf` 附件。旧版返回 409，渲染未配置或失败返回 503 |
 | `POST /:deliveryId/record` | `{orgId,deliveryReference}`，实际人工交付后登记凭证。相同凭证在有效版本内幂等，修改已登记凭证或登记旧稿返回 409 |
 
 交付件为独立 HTML，正文固定包含收件方、用途、对象、范围、结果与报告版本。两个开关分别允许月度汇总和公开因子出处。内部审阅理由、操作者标识、源文件引用和台账 ID 不随文件交付。数据库保存冻结文件及 UTF-8 字节的 SHA-256，生成不触发发送或送达。线上领取、真实收件身份和文件撤回为独立工作。
+
+PDF 从同一冻结 HTML 按需排版，采用 A4、连续页码及跨页表头。页面上 SHA-256 对应冻结的 HTML。渲染器仅处理服务已授权返回的文档，禁用脚本、服务工作线程和外部请求。运维为运行环境安装 Chromium 和中文字体。使用 Playwright Core 的 Chromium PDF 接口，依赖由项目锁定，浏览器和字体按部署环境配置。Puppeteer 也提供 Chromium PDF，项目复用已用于界面验收的 Playwright 工具链。[Playwright PDF 接口](https://playwright.dev/docs/api/class-page#page-pdf) · [Puppeteer PDF 指南](https://pptr.dev/guides/pdf-generation)
 
 - 正式报告编制要求可用生产因子及许可证、版本化模板、适用规则、核算范围、可复算结果和质量问题状态。合成稿无正式批准入口。编制人提交正式版本，由有权的独立审核人批准。退回保留理由，后续更正另建版本。报告审批和受理复核分别留痕。
 - 中文 PDF 先在独立导出切片验证模板、分页、字体、单位、数字和来源一致性。保存不可变文件版本及摘要，并测试下载授权和对象存储恢复。Word、Excel 各自通过同数据契约验收后启用。预览能力与批准文件的导出资格分开。

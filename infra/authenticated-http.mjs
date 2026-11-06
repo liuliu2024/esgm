@@ -88,6 +88,11 @@ export function createAuthenticatedHandler({api, authenticate, publicOrigin}) {
 
       const context = {actorId, tenantId, requestId: randomUUID(), ...(orgId !== undefined && {orgId})};
       const result = await api.dispatch({method, path, body, contentType}, context);
+      if (Buffer.isBuffer(result.body)) {
+        response.writeHead(result.status, result.headers);
+        response.end(result.body);
+        return;
+      }
       reply(result.status, result.body);
     } catch {
       reject(500, 'AUTHENTICATED_HTTP_ERROR', '暂时无法处理请求。');

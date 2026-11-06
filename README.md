@@ -16,6 +16,8 @@ npm test
 
 `npm run preview -- --sample` 启动本机演示，并预装一份已送审的合成报告。`npm run preview` 可从空任务列表开始。可用 `CARBON_PREVIEW_PORT` 选择端口。
 
+预览采购方 PDF 时，将 `CARBON_PDF_CHROMIUM_PATH` 指向已安装且与 Playwright 兼容的 Chrome 或 Chromium。渲染进程需要系统中文字体，Windows 可使用微软雅黑，Linux 可使用 Noto Sans CJK SC。正式服务通过 `createCarbonApi(database, {renderDeliveryPdf})` 接入 `infra/delivery-pdf.mjs` 的渲染器。未配置时 PDF 返回 503，HTML 交付件仍可使用。
+
 - 客户首页 `http://127.0.0.1:4173/`
 - 七项业务 `http://127.0.0.1:4173/modules`
 - 企业工作台 `http://127.0.0.1:4173/customer`
@@ -52,7 +54,7 @@ npm test
 
 ## 接口契约
 
-入口为 `createCarbonApi(database).dispatch({ method, path, body }, context)`。返回 `{ status, body }`。认证接入层提供可信的 `context = { tenantId, actorId, requestId }`。租户与身份须由真实会话解析，组织和角色由服务查询。出错返回稳定的 `error.code` 和可读的 `error.message`。
+入口为 `createCarbonApi(database).dispatch({ method, path, body }, context)`。返回 `{ status, body }`，PDF 附件另带 `headers`。认证接入层提供可信的 `context = { tenantId, actorId, requestId }`。租户与身份须由真实会话解析，组织和角色由服务查询。出错返回稳定的 `error.code` 和可读的 `error.message`。
 
 页面使用 `GET /v1/session/workspace?view=customer|professional|admin` 查当前组织。`view` 只选择工作台所需授权。服务按当前主体及租户的有效组织授权匹配。若同一视图有多个可访问组织，受信会话须提供选中的 `orgId`，否则返回 `WORKSPACE_SELECTION_REQUIRED`。业务接口继续逐请求核对当前授权。
 
@@ -89,6 +91,7 @@ npm test
 | 专业复核人 | `POST /v1/professional/cases/:id/internal-report-drafts/:draftId/review` | `orgId, decision, reason?`，独立记录一次内部复核结论。退回需填写理由 |
 | 客户 | `POST /v1/customer/cases/:id/internal-report-drafts/:draftId/deliveries` | `orgId, recipient, purpose, includeMonthly, includeFactor`，冻结具名采购方交付件 |
 | 客户 | `GET /v1/customer/cases/:id/internal-report-drafts/:draftId/deliveries[/:deliveryId]` | `orgId`，列表返回记录，详情可读取有效版本的独立 HTML 及 SHA-256 |
+| 客户 | `GET /v1/customer/cases/:id/internal-report-drafts/:draftId/deliveries/:deliveryId/pdf` | `orgId`，下载当前有效交付件的 PDF 附件。沿用 HTML 的字段范围和权限 |
 | 客户 | `POST /v1/customer/cases/:id/internal-report-drafts/:draftId/deliveries/:deliveryId/record` | `orgId, deliveryReference`，登记人工交付凭证 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/evidence` | `orgId`，返回有权查看的材料清单 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/revisions/:revision/evidence` | `orgId`，返回已提交修订所引用的材料和文件摘要 |

@@ -212,6 +212,7 @@ function reportDeliveryPanel(draft, path) {
   const detail = find('.report-delivery-detail');
   const title = find('.report-delivery-title');
   const download = find('.report-delivery-download');
+  const downloadPdf = find('.report-delivery-download-pdf');
   const orgId = context.orgId;
   const query = new URLSearchParams({orgId});
   const active = () => panel.isConnected && selected?.id === draft.caseId;
@@ -230,6 +231,7 @@ function reportDeliveryPanel(draft, path) {
     find('.report-delivery-meta').textContent = delivery.purpose;
     find('.report-delivery-sha').textContent = delivery.documentSha256;
     download.hidden = !downloadable;
+    downloadPdf.hidden = !downloadable;
     find('.report-delivery-unavailable').hidden = downloadable;
     const recorded = find('.report-delivery-recorded');
     recorded.textContent = delivery.deliveryReference ? `交付凭证 · ${delivery.deliveryReference}` : '';
@@ -317,6 +319,27 @@ function reportDeliveryPanel(draft, path) {
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       return '已请求下载。实际交付后请登记凭证。';
+    });
+  });
+  downloadPdf.addEventListener('click', () => {
+    void run('正在读取 PDF…', async () => {
+      const {deliveryId} = current;
+      const response = await fetch(`${path}/${deliveryId}/pdf?${query}`);
+      const type = response.headers.get('Content-Type')?.split(';')[0];
+      if (!response.ok) {
+        const message = type === 'application/json' ? (await response.json()).error?.message : null;
+        throw new Error(message ?? 'PDF 下载失败，请重试。');
+      }
+      if (type !== 'application/pdf') throw new Error('收到的文件格式异常，请重试。');
+      const file = await response.blob();
+      if (!active()) return;
+      const url = URL.createObjectURL(file);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `碳有据-采购方交付件-${deliveryId}.pdf`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return '已请求下载 PDF。实际交付后请登记凭证。';
     });
   });
   record.addEventListener('submit', event => {

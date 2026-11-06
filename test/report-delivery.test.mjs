@@ -17,7 +17,14 @@ test('named report delivery authorizes a minimal immutable document for a review
     await tx.query(`INSERT INTO carbon.org_grant VALUES ($1, $2, $3, 'customer'),
       ($1, $2, $4, 'reviewer'), ($1, $2, $5, 'customer')`, [tenantId, orgId, owner, reviewer, peer]);
   });
-  const api = createCarbonApi(db.runtime);
+  const renderedHtml = [];
+  const pdfBytes = Buffer.from('%PDF-1.7\nfixture\n%%EOF\n');
+  let renderFails = false;
+  const api = createCarbonApi(db.runtime, {renderDeliveryPdf: async html => {
+    renderedHtml.push(html);
+    if (renderFails) throw new Error('PRIVATE_RENDER_FAILURE');
+    return pdfBytes;
+  }});
   async function request(status, method, path, body, actorId = owner) {
     const result = await api.dispatch({method, path, body}, {tenantId, actorId, requestId: randomUUID()});
     assert.equal(result.status, status, `${method} ${path} ${JSON.stringify(result.body)}`);
@@ -84,6 +91,9 @@ test('named report delivery authorizes a minimal immutable document for a review
   const firstPath = `${collection(complete)}/${first.deliveryId}`;
   const secondPath = `${collection(complete)}/${second.deliveryId}`;
   const get = path => request(200, 'GET', path + query);
+  const pdf = (path, actorId = owner, selectedApi = api, organization = orgId) =>
+    selectedApi.dispatch({method: 'GET', path: `${path}/pdf?orgId=${organization}`},
+      {tenantId, actorId, requestId: randomUUID()});
   await request(404, 'GET', firstPath + query, undefined, peer);
   await request(404, 'GET', `${collection(partial)}/${first.deliveryId}${query}`);
   const {items} = await get(collection(complete));
@@ -116,6 +126,30 @@ test('named report delivery authorizes a minimal immutable document for a review
   assert.match(factorHtml, /公开因子来源/);
   assert.doesNotMatch(factorHtml, /月度汇总/);
 
+  assert.equal((await pdf(firstPath, peer)).status, 404);
+  assert.equal((await pdf(firstPath, reviewer)).status, 403);
+  assert.equal((await pdf(firstPath, owner, api, randomUUID())).status, 403);
+  assert.equal((await pdf(`${collection(partial)}/${first.deliveryId}`)).status, 404);
+  assert.deepEqual(renderedHtml, []);
+  const unavailable = await pdf(firstPath, owner, createCarbonApi(db.runtime));
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailable.body.error.code, 'PDF_EXPORT_UNAVAILABLE');
+  renderFails = true;
+  const failed = await pdf(firstPath);
+  assert.equal(failed.status, 503);
+  assert.equal(failed.body.error.code, 'PDF_EXPORT_UNAVAILABLE');
+  assert.doesNotMatch(JSON.stringify(failed.body), /PRIVATE_RENDER_FAILURE/);
+  renderFails = false;
+  const exported = await pdf(firstPath);
+  assert.equal(exported.status, 200);
+  assert.ok(Buffer.isBuffer(exported.body));
+  assert.deepEqual(exported.body, pdfBytes);
+  assert.equal(exported.headers['Content-Type'], 'application/pdf');
+  assert.match(exported.headers['Content-Disposition'], /^attachment;.*\.pdf"?$/i);
+  assert.equal(exported.headers['Cache-Control'], 'no-store');
+  assert.deepEqual(renderedHtml, [bare.documentHtml, bare.documentHtml]);
+  assert.deepEqual(await get(firstPath), bare);
+
   const record = (status, path, deliveryReference) =>
     request(status, 'POST', path + '/record', {orgId, deliveryReference});
   const recorded = await record(200, firstPath, '采购邮件存档 #A-1');
@@ -136,6 +170,10 @@ test('named report delivery authorizes a minimal immutable document for a review
   assert.equal(historical.documentSha256, first.documentSha256);
   assert.equal(historical.deliveryReference, recorded.deliveryReference);
   assert.equal((await get(secondPath)).documentHtml, null);
+  const obsoletePdf = await pdf(firstPath);
+  assert.equal(obsoletePdf.status, 409);
+  assert.equal(obsoletePdf.body.error.code, 'REPORT_DELIVERY_SOURCE_CONFLICT');
+  assert.deepEqual(renderedHtml, [bare.documentHtml, bare.documentHtml]);
   await deliver(409, complete);
   await record(409, secondPath, '过期交付');
   await record(409, firstPath, recorded.deliveryReference);

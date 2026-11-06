@@ -33,6 +33,7 @@ const routes = {
   internalReportReview: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)\/review$/,
   reportDeliveries: /^\/v1\/customer\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)\/deliveries$/,
   reportDelivery: /^\/v1\/customer\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)\/deliveries\/([^/]+)$/,
+  reportDeliveryPdf: /^\/v1\/customer\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)\/deliveries\/([^/]+)\/pdf$/,
   recordReportDelivery: /^\/v1\/customer\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)\/deliveries\/([^/]+)\/record$/,
   submit: /^\/v1\/customer\/cases\/([^/]+)\/submit$/,
   resubmit: /^\/v1\/customer\/cases\/([^/]+)\/resubmit$/,
@@ -245,7 +246,7 @@ function errorResponse(error) {
 
 // The caller must supply an authenticated server-side context. No request field
 // or header may be promoted directly into that context.
-export function createCarbonApi(database, {quarantine} = {}) {
+export function createCarbonApi(database, {quarantine, renderDeliveryPdf} = {}) {
   const intake = createIntakeService(database, quarantine);
   return {
     async dispatch(request, context) {
@@ -467,6 +468,30 @@ export function createCarbonApi(database, {quarantine} = {}) {
             const [, caseId, draftId, deliveryId] = reportDelivery;
             return {status: 200, body: await intake.readReportDelivery(scope, uuid(query.get('orgId'), '组织'),
               uuid(caseId, '任务'), uuid(draftId, '稿件'), uuid(deliveryId, '交付件'))};
+          }
+          const reportDeliveryPdf = routes.reportDeliveryPdf.exec(path);
+          if (reportDeliveryPdf) {
+            queryFields(query, ['orgId']);
+            const [, caseId, draftId, deliveryId] = reportDeliveryPdf;
+            const delivery = await intake.readReportDelivery(scope, uuid(query.get('orgId'), '组织'),
+              uuid(caseId, '任务'), uuid(draftId, '稿件'), uuid(deliveryId, '交付件'));
+            if (delivery.documentHtml === null) {
+              fail(409, 'REPORT_DELIVERY_SOURCE_CONFLICT', '该交付件所属报告已不是当前有效版本。');
+            }
+            let pdf;
+            try {
+              pdf = await renderDeliveryPdf?.(delivery.documentHtml);
+            } catch {
+              fail(503, 'PDF_EXPORT_UNAVAILABLE', 'PDF 导出暂不可用，请稍后重试。');
+            }
+            if (!Buffer.isBuffer(pdf) || !pdf.length) {
+              fail(503, 'PDF_EXPORT_UNAVAILABLE', 'PDF 导出暂不可用，请稍后重试。');
+            }
+            return {status: 200, body: pdf, headers: {
+              'Content-Type': 'application/pdf',
+              'Content-Disposition': `attachment; filename="carbon-delivery-${delivery.deliveryId}.pdf"`,
+              'Cache-Control': 'no-store'
+            }};
           }
           const reportDeliveries = routes.reportDeliveries.exec(path);
           if (reportDeliveries) {

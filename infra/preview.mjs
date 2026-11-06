@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { startDemo } from './demo-data.mjs';
 import { createLocalQuarantine } from './local-quarantine.mjs';
+import { createDeliveryPdfRenderer } from './delivery-pdf.mjs';
 import { MAX_EVIDENCE_FILE_BYTES } from '../src/index.mjs';
 
 const pages = {
@@ -85,9 +86,9 @@ async function seedElectricitySample(demo) {
   await post('reviewer', `${draftPath}/review`, {decision: 'reviewed'});
 }
 
-export async function startPreview(port = 0, { sample = false } = {}) {
+export async function startPreview(port = 0, { sample = false, renderDeliveryPdf } = {}) {
   const quarantine = await createLocalQuarantine();
-  const demo = await startDemo({ quarantine }).catch(async error => {
+  const demo = await startDemo({ quarantine, renderDeliveryPdf }).catch(async error => {
     await quarantine.close();
     throw error;
   });
@@ -156,6 +157,11 @@ export async function startPreview(port = 0, { sample = false } = {}) {
       // Only this loopback preview maps routes to synthetic users. Real auth supplies context separately.
       const result = await demo.dispatch(role === 'professional' ? 'reviewer' : role,
         request.method, url.pathname + url.search, body, contentType);
+      if (Buffer.isBuffer(result.body)) {
+        response.writeHead(result.status, result.headers);
+        response.end(result.body);
+        return;
+      }
       reply(result.status, result.body);
     } catch {
       reply(500, { error: { code: 'PREVIEW_ERROR', message: '本地演示暂时不可用。' } });
@@ -184,8 +190,10 @@ export async function startPreview(port = 0, { sample = false } = {}) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const executablePath = process.env.CARBON_PDF_CHROMIUM_PATH;
   const preview = await startPreview(Number(process.env.CARBON_PREVIEW_PORT ?? 4173), {
-    sample: process.argv.includes('--sample')
+    sample: process.argv.includes('--sample'),
+    renderDeliveryPdf: executablePath ? createDeliveryPdfRenderer({executablePath}) : undefined
   });
   console.log(`客户首页 ${preview.origin}/\n专业作业台 ${preview.origin}/professional\n七项业务 ${preview.origin}/modules\n企业工作台 ${preview.origin}/customer\n组织审计 ${preview.origin}/admin`);
   process.once('SIGINT', () => preview.close());

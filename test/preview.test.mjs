@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import { startPreview } from '../infra/preview.mjs';
 
 test('sample preview starts with a frozen report in the independent review queue', async t => {
-  const preview = await startPreview(0, { sample: true });
+  const pdfBytes = Buffer.from('%PDF-1.7\n\u0000test-renderer\n');
+  const preview = await startPreview(0, { sample: true, renderDeliveryPdf: async () => pdfBytes });
   t.after(() => preview.close());
   const home = await fetch(preview.origin + '/');
   assert.equal(home.status, 200);
@@ -49,6 +50,20 @@ test('sample preview starts with a frozen report in the independent review queue
   assert.equal(controlledDraft.report.summary.knownSubtotalKg, '577.7');
   assert.equal(controlledDraft.report.summary.totalKg, null);
   assert.equal(controlledDraft.externalDeliveryEligible, false);
+  const trialDrafts = `/v1/customer/cases/${trial.id}/internal-report-drafts`;
+  const {items: electricityDrafts} = await get(`${trialDrafts}?orgId=${orgId}`);
+  const reviewedDraft = electricityDrafts.find(item => item.to === '2024-02');
+  const deliveryPath = `${trialDrafts}/${reviewedDraft.draftId}/deliveries`;
+  const prepared = await fetch(preview.origin + deliveryPath, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({orgId, recipient: '样例采购方', purpose: 'PDF 验收', includeMonthly: true, includeFactor: false})
+  });
+  assert.equal(prepared.status, 201);
+  const {deliveryId} = await prepared.json();
+  const pdf = await fetch(`${preview.origin}${deliveryPath}/${deliveryId}/pdf?orgId=${orgId}`);
+  assert.equal(pdf.status, 200);
+  assert.equal(pdf.headers.get('content-type'), 'application/pdf');
+  assert.deepEqual(Buffer.from(await pdf.arrayBuffer()), pdfBytes);
   assert.equal(task.status, 'submitted');
   const path = `/v1/customer/cases/${task.id}/internal-report-drafts`;
   const { items: [draft] } = await get(`${path}?orgId=${orgId}`);

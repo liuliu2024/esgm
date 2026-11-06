@@ -115,3 +115,24 @@ test('HTTP writes reject cross-origin requests and preserve JSON commands and fi
   assert.equal(receipt.byteSize, bytes.length);
   assert.deepEqual(files.get(receipt.id), bytes);
 });
+
+test('authenticated HTTP sends attachment bytes and headers without JSON encoding', async t => {
+  const bytes = Buffer.from('%PDF-1.7\n\u0000attachment\n');
+  const attachment = createServer(createAuthenticatedHandler({
+    authenticate: async request => sessions.get(request.headers.cookie?.slice('session='.length)),
+    api: {dispatch: async () => ({status: 200, body: bytes, headers: {
+      'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="report.pdf"', 'Cache-Control': 'no-store'
+    }})}
+  }));
+  attachment.listen(0, '127.0.0.1');
+  t.after(() => new Promise(resolve => attachment.close(resolve)));
+  await once(attachment, 'listening');
+  const url = `http://127.0.0.1:${attachment.address().port}/v1/pdf`;
+  assert.equal((await fetch(url)).status, 401);
+  const response = await fetch(url, {headers: {Cookie: 'session=customer'}});
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'application/pdf');
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(response.headers.get('content-disposition'), 'attachment; filename="report.pdf"');
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
+});
