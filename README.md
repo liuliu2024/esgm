@@ -88,6 +88,7 @@ npm test
 | 专业复核人 | `POST /v1/professional/cases/:id/internal-report-drafts/:draftId/review` | `orgId, decision, reason?`，独立记录一次内部演示结论。退回需填写理由 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/evidence` | `orgId`，返回有权查看的材料清单 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/revisions/:revision/evidence` | `orgId`，返回已提交修订所引用的材料和文件摘要 |
+| 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/revisions/:revision/activities` | `orgId`，返回提交时锁定的活动输入和来源；旧提交明确标记缺少历史固定记录 |
 | 专业复核人 | `GET /v1/professional/cases/:id` | 查询参数 `orgId` |
 | 专业复核人 | `POST /v1/professional/cases/:id/review` | `orgId, revision, decision`。退回时必填 `reason` |
 | 专业复核人 | `GET /v1/professional/factor-references` | `orgId, accountingBasis, regionCode, dataYear`，只读查询匹配的[官方参考因子](docs/factor-references.md) |

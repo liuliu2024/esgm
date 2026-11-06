@@ -823,6 +823,33 @@ export function createIntakeService(database, quarantine) {
       });
     },
 
+    listSubmissionActivities(scope, orgId, caseId, submissionRevision, customerOnly) {
+      return inWorkspace(scope, async tx => {
+        await readVisibleCase(tx, scope, orgId, caseId, customerOnly);
+        const {rows} = await tx.query(`
+          SELECT capture.submission_revision IS NOT NULL AS captured,
+            to_char(activity.period, 'YYYY-MM') AS period, activity.source, activity.activity_revision AS revision,
+            trim_scale(activity.quantity)::text AS quantity, activity.unit,
+            jsonb_build_object('batchId', activity.batch_id, 'previewRevision', activity.preview_revision,
+              'sourceRow', activity.source_row, 'sourceType', activity.source_type, 'conversionVersion', activity.conversion_version,
+              'originalQuantity', activity.original_quantity, 'originalUnit', activity.original_unit) AS lineage
+          FROM carbon.case_submission AS submission
+          LEFT JOIN carbon.case_submission_activity_capture AS capture
+            ON capture.tenant_id = submission.tenant_id AND capture.org_id = submission.org_id
+            AND capture.case_id = submission.case_id AND capture.submission_revision = submission.revision
+          LEFT JOIN carbon.case_submission_activity AS activity
+            ON activity.tenant_id = capture.tenant_id AND activity.org_id = capture.org_id
+            AND activity.case_id = capture.case_id AND activity.submission_revision = capture.submission_revision
+          WHERE submission.tenant_id = $1 AND submission.org_id = $2 AND submission.case_id = $3
+            AND submission.revision = $4
+          ORDER BY activity.period, activity.source
+        `, [scope.tenantId, orgId, caseId, submissionRevision]);
+        if (!rows.length) throw new CarbonError(404, 'REVISION_NOT_FOUND', '未找到该任务的提交版本。');
+        return {submissionRevision, status: rows[0].captured ? 'captured' : 'legacy_unavailable',
+          items: rows.filter(row => row.period !== null).map(({captured, ...item}) => item)};
+      });
+    },
+
     submit(scope, orgId, id, revision, evidenceIds) {
       return inWorkspace(scope, async tx => {
         await requireRole(tx, scope, orgId, 'customer');

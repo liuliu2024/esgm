@@ -11,10 +11,13 @@ test('sample preview starts with a frozen report in the independent review queue
   const directory = await fetch(preview.origin + '/modules');
   assert.equal(directory.status, 200);
   const modules = await directory.text();
-  assert.equal([...modules.matchAll(/<details>/g)].length, 7);
-  assert.match(modules, /href="\/\?industry=buildings"/);
-  assert.match(modules, /href="\/customer\?scenarioCode=product-footprint-prep"/);
-  assert.match(modules, /href="\/customer\?scenarioCode=overseas-report-prep"/);
+  assert.equal([...modules.matchAll(/<details\b/g)].length, 7);
+  const visibleDirectory = modules.replace(/<details\b[^>]*>[\s\S]*?<\/details>/g, '');
+  assert.match(visibleDirectory, /href="\/\?industry=buildings"/);
+  for (const code of ['product-footprint-prep', 'verification-prep', 'compliance-prep', 'zero-carbon-prep',
+    'esg-disclosure-prep', 'overseas-report-prep']) {
+    assert.ok(visibleDirectory.includes(`href="/customer?scenarioCode=${code}"`), `${code} must be visible before expanding details`);
+  }
   const get = async path => {
     const response = await fetch(preview.origin + path);
     assert.equal(response.status, 200);

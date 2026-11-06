@@ -21,6 +21,9 @@ const evidenceRevision = document.querySelector('#evidence-revision');
 const revisionEvidenceStatus = document.querySelector('#revision-evidence-status');
 const revisionEvidenceError = document.querySelector('#revision-evidence-error');
 const revisionEvidenceList = document.querySelector('#revision-evidence-list');
+const revisionActivity = document.querySelector('#revision-activity');
+const revisionActivityStatus = document.querySelector('#revision-activity-status');
+const revisionActivityList = document.querySelector('#revision-activity-list');
 const factorForm = document.querySelector('#factor-reference-form');
 const factorBasis = document.querySelector('#factor-accounting-basis');
 const factorYear = document.querySelector('#factor-data-year');
@@ -51,6 +54,38 @@ let viewing;
 let saving = false;
 let reportView;
 let revisionEvidenceView;
+const activityNames = {electricity: '购入电力', natural_gas: '天然气'};
+
+async function loadRevisionActivity() {
+  const view = revisionEvidenceView;
+  const revision = evidenceRevision.value;
+  if (!view || !revision || !revisionActivity.open) return;
+  const selection = Symbol();
+  view.activitySelection = selection;
+  revisionActivityList.replaceChildren();
+  revisionActivityList.hidden = true;
+  revisionActivityStatus.textContent = '正在读取提交时的数据…';
+  try {
+    const {status, items} = await request(`${view.base}/revisions/${revision}/activities?${new URLSearchParams({orgId})}`);
+    if (revisionEvidenceView !== view || view.activitySelection !== selection) return;
+    revisionActivityList.replaceChildren(...items.map(item => {
+      const row = document.createElement('li');
+      const amount = document.createElement('p');
+      const origin = document.createElement('p');
+      const { originalQuantity, originalUnit, previewRevision, sourceRow } = item.lineage;
+      amount.textContent = `${item.period} · ${activityNames[item.source] ?? item.source} · ${item.quantity} ${item.unit}`;
+      origin.className = 'muted';
+      origin.textContent = `原始量 ${originalQuantity} ${originalUnit} · 活动第 ${item.revision} 版 · 导入预览第 ${previewRevision} 版 · 源文件第 ${sourceRow} 行`;
+      row.append(amount, origin);
+      return row;
+    }));
+    revisionActivityList.hidden = !items.length;
+    revisionActivityStatus.textContent = status === 'legacy_unavailable' ? '该提交早于活动数据版本记录。'
+      : items.length ? '' : '该提交没有已入账的活动数据。';
+  } catch (error) {
+    if (revisionEvidenceView === view && view.activitySelection === selection) revisionActivityStatus.textContent = error.message;
+  }
+}
 
 async function loadRevisionEvidence() {
   const view = revisionEvidenceView;
@@ -239,6 +274,7 @@ async function loadCase(item, focus = false) {
   viewing = selection;
   revisionEvidenceView = undefined;
   revisionEvidenceSection.hidden = true;
+  revisionActivity.open = false;
   showFactorDecision();
   resetReportView();
   detail.hidden = true;
@@ -366,10 +402,12 @@ reportPanel.addEventListener('toggle', () => {
 });
 evidenceRevision.addEventListener('change', () => {
   void loadRevisionEvidence();
+  void loadRevisionActivity();
   const revision = Number(evidenceRevision.value);
   showFactorDecision({base: revisionEvidenceView.base, orgId, revision,
     canDecide: selected.nextAction === 'review' && selected.revision === revision});
 });
+revisionActivity.addEventListener('toggle', () => void loadRevisionActivity());
 reportMore.addEventListener('click', () => {
   if (reportView?.cursor) void loadReports(reportView, reportView.cursor);
 });
