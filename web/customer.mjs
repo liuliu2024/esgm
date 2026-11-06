@@ -1,4 +1,4 @@
-import { evidenceStatusLabel, getContext, renderCasePreparation, renderHistory, renderRevisionEvidence, request, statusLabel } from './shared.mjs';
+import { evidenceStatusLabel, getContext, internalReportHref, renderCasePreparation, renderHistory, renderRevisionEvidence, request, statusLabel } from './shared.mjs';
 
 const element = id => document.getElementById(id);
 const list = element('cases');
@@ -316,7 +316,10 @@ function renderReport(container, draft, historical = false) {
     row.append(label, reportActivitySource(draft.caseId, item));
     rows.append(row);
   }
-  container.append(rows, reportReviewPanel(draft));
+  const fullReport = document.createElement('a');
+  fullReport.textContent = '打开完整报告';
+  fullReport.href = internalReportHref({orgId: context.orgId, caseId: draft.caseId, draftId: draft.draftId, view: 'customer'});
+  container.append(rows, fullReport, reportReviewPanel(draft));
 }
 
 function renderReportHistory() {
@@ -984,9 +987,21 @@ try {
   newCase.disabled = false;
   refresh.disabled = false;
   const params = new URLSearchParams(location.search);
+  const linkedCase = params.get('case');
   const preselectedId = params.get('scenario');
   const preselectedCode = params.get('scenarioCode');
-  if (preselectedId || preselectedCode !== null) await openCreate({preselectedId, preselectedCode});
+  if (linkedCase) {
+    try {
+      const item = await request(`${base}/${encodeURIComponent(linkedCase)}?orgId=${context.orgId}`);
+      if (!cases.some(existing => existing.id === item.id)) cases.unshift(item);
+      updateCase(item);
+      await loadEvidence();
+    } catch (error) {
+      feedback.textContent = error.message;
+    }
+  } else if (preselectedId || preselectedCode !== null) {
+    await openCreate({preselectedId, preselectedCode});
+  }
 } catch (error) {
   listState.textContent = '无法读取受理单';
   feedback.textContent = error.message;

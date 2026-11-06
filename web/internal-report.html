@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>内部报告 · 碳有据</title>
+  <link rel="stylesheet" href="/shared.css">
+  <link rel="stylesheet" href="/internal-report.css">
+  <script type="module" src="/internal-report.mjs"></script>
+</head>
+<body>
+  <header class="presentation-header">
+    <a class="presentation-brand" href="/">碳有据</a>
+    <nav aria-label="工作台"><a id="internal-report-back" href="/customer">返回企业工作台</a></nav>
+  </header>
+  <main class="report-main">
+    <p id="internal-report-status" role="status">正在读取报告演示稿…</p>
+    <p id="internal-report-error" role="alert"></p>
+    <article id="internal-report" class="report-sheet" hidden>
+      <div class="report-top">
+        <p id="internal-report-watermark" class="report-watermark"></p>
+        <h1 id="internal-report-title"></h1>
+        <p id="internal-report-meta" class="muted"></p>
+        <p id="internal-report-review" class="report-review" hidden></p>
+      </div>
+      <div class="report-overview">
+        <section aria-labelledby="report-result-heading">
+          <h2 id="report-result-heading">核算结果</h2>
+          <p id="internal-report-total" class="report-total"></p>
+          <p id="internal-report-total-kg" class="muted"></p>
+        </section>
+        <section aria-labelledby="report-scope-heading">
+          <h2 id="report-scope-heading">报告范围</h2>
+          <dl id="internal-report-scope" class="report-fields"></dl>
+        </section>
+      </div>
+      <section id="internal-report-review-notes" class="report-section" aria-labelledby="report-review-notes-heading" hidden>
+        <h2 id="report-review-notes-heading">复核意见</h2>
+        <p id="internal-report-review-reason"></p>
+      </section>
+      <section class="report-section" aria-labelledby="report-lineage-heading">
+        <h2 id="report-lineage-heading">核算明细与来源</h2>
+        <div class="table-scroll" tabindex="0" role="region" aria-label="核算明细表">
+          <table>
+            <thead><tr><th scope="col">活动与月份</th><th scope="col">活动量</th><th scope="col">排放量</th><th scope="col">来源记录</th></tr></thead>
+            <tbody id="internal-report-lineage"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="report-section" aria-labelledby="report-limits-heading">
+        <h2 id="report-limits-heading">使用范围</h2>
+        <ul id="internal-report-limitations" class="history-list"></ul>
+      </section>
+    </article>
+  </main>
+</body>
+</html>

@@ -75,6 +75,9 @@ test('three preview entries use the same intake and review workflow', async () =
       return response.json();
     };
     const { orgId, scenarioReleaseId } = await read('/demo/context');
+    const reportPage = await fetch(preview.origin + '/reports/internal-draft');
+    assert.equal(reportPage.status, 200);
+    assert.match(await reportPage.text(), /\/internal-report\.mjs/);
     const catalog = await read(`/v1/customer/scenarios?orgId=${orgId}`);
     assert.equal(catalog.items.length, 8);
     assert.ok(catalog.items.every(item => item.ruleStatus === 'needs_review'));

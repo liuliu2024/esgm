@@ -17,6 +17,8 @@ export async function request(path, body) {
 
 export const getContext = () => request('/demo/context');
 export const statusLabel = status => statuses[status] ?? status;
+export const internalReportHref = ({orgId, caseId, draftId, view}) =>
+  `/reports/internal-draft?${new URLSearchParams({orgId, case: caseId, draft: draftId, view})}`;
 const evidenceStatuses = { pending_file: '待补文件', pending_scan: '待检查', passed: '检查通过', rejected: '检查未通过' };
 export const evidenceStatusLabel = status => evidenceStatuses[status] ?? status;
 

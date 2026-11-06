@@ -1,4 +1,4 @@
-import { evidenceStatusLabel, getContext, renderCasePreparation, renderHistory, renderRevisionEvidence, request, statusLabel } from '/shared.mjs';
+import { evidenceStatusLabel, getContext, internalReportHref, renderCasePreparation, renderHistory, renderRevisionEvidence, request, statusLabel } from '/shared.mjs';
 
 const queue = document.querySelector('#queue');
 const queueStatus = document.querySelector('#queue-status');
@@ -120,6 +120,8 @@ async function loadReports(view, after = null) {
 function drawReport(view, { draft, review }) {
   const report = draft.report;
   reportTitle.textContent = report.title;
+  document.querySelector('#report-review-full').href = internalReportHref({orgId, caseId: draft.caseId,
+    draftId: draft.draftId, view: 'professional'});
   document.querySelector('#report-review-watermark').textContent = report.watermark;
   document.querySelector('#report-review-summary').textContent = `${report.scope.from} 至 ${report.scope.to} · ${report.summary.totalKgCO2e} kgCO₂e（${report.summary.totalTCO2e} tCO₂e）`;
   document.querySelector('#report-review-purpose').textContent = report.scope.purpose;
@@ -241,7 +243,7 @@ async function loadCase(item, focus = false) {
   detailStatus.textContent = '正在加载详情';
   reviewError.textContent = '';
   try {
-    const base = `/v1/professional/cases/${item.id}`;
+    const base = `/v1/professional/cases/${encodeURIComponent(item.id)}`;
     const query = new URLSearchParams({ orgId });
     const [current, { events }] = await Promise.all([
       request(`${base}?${query}`),
@@ -318,6 +320,7 @@ async function loadQueue(append = false) {
     nextPage.hidden = !cursor;
     queue.hidden = queue.children.length === 0;
     queueStatus.textContent = queue.hidden ? '暂无复核任务' : '';
+    return page.cases;
   } catch (error) {
     workspaceError.textContent = error.message;
     queueStatus.textContent = '';
@@ -432,7 +435,9 @@ factorForm.addEventListener('submit', async event => {
 try {
   ({ orgId } = await getContext());
   factorSearch.disabled = false;
-  await loadQueue();
+  const page = await loadQueue();
+  const linkedCase = new URLSearchParams(location.search).get('case');
+  if (linkedCase) await loadCase(page?.find(item => item.id === linkedCase) ?? {id: linkedCase, nextAction: 'none'});
 } catch (error) {
   workspaceError.textContent = error.message;
   queueStatus.textContent = '';

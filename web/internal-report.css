@@ -1,0 +1,46 @@
+body {
+  --paper: #f4f8f9;
+  --surface: #fff;
+  --ink: #142b40;
+  --muted: #496171;
+  --line: #dce7e9;
+  --accent: #076d66;
+  --accent-soft: #e5f4f0;
+  --radius: 14px;
+}
+
+.presentation-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 24px; border-bottom: 1px solid var(--line); padding-block: 12px; }
+.presentation-header a { display: inline-flex; align-items: center; min-height: 44px; text-decoration: none; color: var(--ink); }
+.presentation-header a:hover { text-decoration: underline; }
+.presentation-brand { font-size: 24px; font-weight: 750; letter-spacing: .05em; }
+.report-main { margin-top: 24px; }
+.report-sheet { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.report-top, .report-overview, .report-section { padding: clamp(18px, 4vw, 34px); }
+.report-top { border-bottom: 1px solid var(--line); }
+.report-top h1 { margin-block: 10px 8px; }
+.report-watermark { width: fit-content; padding: 4px 10px; border-radius: 6px; color: var(--warning); background: var(--warning-soft); font-weight: 700; }
+.report-review { width: fit-content; margin-top: 8px; padding: 4px 10px; border-radius: 6px; color: var(--accent); background: var(--accent-soft); }
+.report-overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr); gap: 20px; background: var(--paper); }
+.report-total { color: var(--accent); font-size: clamp(28px, 5vw, 44px); font-weight: 750; line-height: 1.15; margin-block: 9px 4px; overflow-wrap: anywhere; }
+.report-fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 10px 0 0; }
+.report-fields dt { color: var(--muted); }
+.report-fields dd { margin: 0; overflow-wrap: anywhere; }
+.report-section + .report-section { border-top: 1px solid var(--line); }
+.report-section table { min-width: 560px; margin-top: 8px; }
+.table-scroll:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+#internal-report-review-reason { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+@media (max-width: 680px) {
+  .report-overview { grid-template-columns: 1fr; }
+}
+
+@media print {
+  body { background: white; color: black; }
+  .presentation-header { display: none; }
+  .report-main { width: 100%; margin: 0; padding: 0; }
+  .report-sheet { border: 0; overflow: visible; }
+  .report-watermark { border: 1px solid currentColor; }
+  .report-section table { min-width: 0; }
+  .table-scroll { overflow: visible; }
+  tr { break-inside: avoid; }
+}
