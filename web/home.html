@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#103b34">
+  <meta name="theme-color" content="#f7fbf9">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%230b8b68'/%3E%3Cpath d='M28 12a12 12 0 1 0 0 16M15 21l4 4 8-9' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='31' cy='12' r='2' fill='%23d3f9b6'/%3E%3C/svg%3E">
   <title>碳有据 · 企业碳业务</title>
   <link rel="stylesheet" href="/shared.css">
   <link rel="stylesheet" href="/home.css">
@@ -13,7 +14,7 @@
   <a class="skip-link" href="#businesses">跳到业务入口</a>
   <header class="home-header">
     <a class="home-brand" href="/" aria-current="page">
-      <svg aria-hidden="true" viewBox="0 0 40 40" width="36" height="36"><path fill="currentColor" d="M0 8a8 8 0 0 1 8-8h24a8 8 0 0 1 8 8v24a8 8 0 0 1-8 8H8a8 8 0 0 1-8-8z"/><path d="M11 12h10l8 8-8 8H11m5-8h13" fill="none" stroke="#d7f1bc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="11" cy="12" r="2" fill="#d7f1bc"/><circle cx="11" cy="28" r="2" fill="#d7f1bc"/></svg>
+      <svg aria-hidden="true" viewBox="0 0 40 40" width="42" height="42"><rect width="40" height="40" rx="12" fill="#0b8b68"/><path d="M28 12a12 12 0 1 0 0 16M15 21l4 4 8-9" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="31" cy="12" r="2" fill="#d3f9b6"/></svg>
       <span>碳有据</span>
     </a>
     <nav aria-label="主导航">
@@ -21,33 +22,53 @@
       <a class="workspace-link" href="/customer">企业工作台 <span aria-hidden="true">↗</span></a>
     </nav>
   </header>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="icon-inventory" viewBox="0 0 24 24"><path d="M3 20h18M6 20V9l5-3v14m0-4h7v4m0-4V4H9v3m5 1h1m-1 3h1"/></symbol>
+    <symbol id="icon-product" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Zm0 9 8-4.5M12 12 4 7.5M12 12v9m4-11.3-8-4.5"/></symbol>
+    <symbol id="icon-verify" viewBox="0 0 24 24"><path d="M9 4H6a2 2 0 0 0-2 2v13h16V6a2 2 0 0 0-2-2h-3M9 3h6v4H9zM8 13l3 3 5-6"/></symbol>
+    <symbol id="icon-trade" viewBox="0 0 24 24"><path d="M3 8h17m-4-4 4 4-4 4m5 4H4m4-4-4 4 4 4"/></symbol>
+    <symbol id="icon-zero" viewBox="0 0 24 24"><path d="M5 20c4-6 8-10 15-15M5 17c-2-7 4-11 15-12 0 10-4 16-12 14"/></symbol>
+    <symbol id="icon-esg" viewBox="0 0 24 24"><path d="M4 20h16M6 16v-5m6 5V7m6 9V4M4 4h6"/></symbol>
+    <symbol id="icon-overseas" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c4 4 4 13 0 17m0-17c-4 4-4 13 0 17"/></symbol>
+  </svg>
   <main>
     <section class="home-intro" aria-labelledby="home-title">
       <div class="home-intro-copy">
-        <h1 id="home-title">企业碳业务</h1>
-        <p>选一项业务，查看办理要求并提交资料。</p>
-        <a href="#businesses">选择业务 <span aria-hidden="true">↓</span></a>
+        <h1 id="home-title">你要办哪项碳业务？</h1>
+        <p>先选你遇到的事，看看从哪里开始。</p>
+        <div class="intent-options" aria-label="办理需求">
+          <button type="button" data-intent="buyer" aria-pressed="true">客户要资料</button>
+          <button type="button" data-intent="inventory" aria-pressed="false">企业要盘查</button>
+          <button type="button" data-intent="compliance" aria-pressed="false">核查与履约</button>
+          <button type="button" data-intent="disclosure" aria-pressed="false">编制披露</button>
+        </div>
       </div>
-      <ol class="process" aria-label="办理顺序">
-        <li><span aria-hidden="true">01</span>确定场景</li>
-        <li><span aria-hidden="true">02</span>准备材料</li>
-        <li><span aria-hidden="true">03</span>提交复核</li>
-      </ol>
+      <section class="intent-result" aria-labelledby="intent-title">
+        <div class="intent-caption">建议从这里开始</div>
+        <div aria-live="polite" aria-atomic="true">
+          <h2 id="intent-title">准备买方需要的碳资料</h2>
+          <p id="intent-note">先确认客户需要单个产品足迹，还是按模板提交境外报告资料。</p>
+        </div>
+        <div id="intent-links" class="intent-links">
+          <a href="/customer?scenarioCode=product-footprint-prep">产品碳足迹 <span aria-hidden="true">↗</span></a>
+          <a href="/customer?scenarioCode=overseas-report-prep">境外客户报告 <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
     </section>
 
     <section id="businesses" class="business-section" aria-labelledby="business-title">
       <div class="section-heading">
-        <h2 id="business-title">选择业务</h2>
+        <h2 id="business-title">全部业务</h2>
         <a href="#guide">按行业找场景 <span aria-hidden="true">↓</span></a>
       </div>
       <ul class="business-list">
-        <li><a href="/?industry=buildings&amp;scenarioCode=building-inventory#guide"><strong>组织碳盘查</strong><span class="business-note">准备企业或设施年度排放资料</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
-        <li><a href="/customer?scenarioCode=product-footprint-prep"><strong>产品碳足迹</strong><span class="business-note">梳理产品、物料和工序数据</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
-        <li><a href="/customer?scenarioCode=verification-prep"><strong>碳核查</strong><span class="business-note">整理报告和原始凭证</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
-        <li><a href="/customer?scenarioCode=compliance-prep"><strong>碳交易与履约</strong><span class="business-note">准备配额、权属和履约资料</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
-        <li><a href="/customer?scenarioCode=zero-carbon-prep"><strong>零碳管理</strong><span class="business-note">梳理基线、目标和改造项目</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
-        <li><a href="/customer?scenarioCode=esg-disclosure-prep"><strong>ESG 与可持续披露</strong><span class="business-note">准备指标、议题及佐证</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
-        <li><a href="/customer?scenarioCode=overseas-report-prep"><strong>境外客户报告</strong><span class="business-note">核对买方模板、口径和期限</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
+        <li><a href="/?industry=buildings&amp;scenarioCode=building-inventory#guide"><svg class="business-icon" aria-hidden="true"><use href="#icon-inventory"/></svg><strong>组织碳盘查</strong><span class="business-note">准备企业或设施年度排放资料</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
+        <li><a href="/customer?scenarioCode=product-footprint-prep"><svg class="business-icon" aria-hidden="true"><use href="#icon-product"/></svg><strong>产品碳足迹</strong><span class="business-note">梳理产品、物料和工序数据</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
+        <li><a href="/customer?scenarioCode=verification-prep"><svg class="business-icon" aria-hidden="true"><use href="#icon-verify"/></svg><strong>碳核查</strong><span class="business-note">整理报告和原始凭证</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
+        <li><a href="/customer?scenarioCode=compliance-prep"><svg class="business-icon" aria-hidden="true"><use href="#icon-trade"/></svg><strong>碳交易与履约</strong><span class="business-note">准备配额、权属和履约资料</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
+        <li><a href="/customer?scenarioCode=zero-carbon-prep"><svg class="business-icon" aria-hidden="true"><use href="#icon-zero"/></svg><strong>零碳管理</strong><span class="business-note">梳理基线、目标和改造项目</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
+        <li><a href="/customer?scenarioCode=esg-disclosure-prep"><svg class="business-icon" aria-hidden="true"><use href="#icon-esg"/></svg><strong>ESG 与可持续披露</strong><span class="business-note">准备指标、议题及佐证</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
+        <li><a href="/customer?scenarioCode=overseas-report-prep"><svg class="business-icon" aria-hidden="true"><use href="#icon-overseas"/></svg><strong>境外客户报告</strong><span class="business-note">核对买方模板、口径和期限</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
       </ul>
     </section>
 

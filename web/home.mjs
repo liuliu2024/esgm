@@ -14,9 +14,46 @@ const catalogRetry = element('home-catalog-retry');
 const referenceState = element('home-reference-state');
 const referenceError = element('home-reference-error');
 const referenceRetry = element('home-reference-retry');
+const intentButtons = [...document.querySelectorAll('.intent-options [data-intent]')];
+const intents = {
+  buyer: {
+    title: '准备买方要求的碳资料',
+    note: '按买方的模板和交付口径，选择产品足迹或境外客户报告。',
+    links: [['产品碳足迹资料受理', '/customer?scenarioCode=product-footprint-prep'], ['境外客户报告资料受理', '/customer?scenarioCode=overseas-report-prep']]
+  },
+  inventory: {
+    title: '梳理企业或设施排放',
+    note: '准备组织盘查，或按排放基线和减排目标整理零碳管理资料。',
+    links: [['组织碳盘查准备', '/?industry=buildings&scenarioCode=building-inventory#guide'], ['零碳管理资料受理', '/customer?scenarioCode=zero-carbon-prep']]
+  },
+  compliance: {
+    title: '准备碳核查或履约资料',
+    note: '按报告凭证与修订记录准备核查，按账户、持仓和履约期间准备履约。',
+    links: [['碳核查资料受理', '/customer?scenarioCode=verification-prep'], ['碳交易与履约资料受理', '/customer?scenarioCode=compliance-prep']]
+  },
+  disclosure: {
+    title: '整理披露指标与证据',
+    note: '按披露框架归集指标，或按境外客户问卷整理指定附件。',
+    links: [['ESG 与可持续披露资料受理', '/customer?scenarioCode=esg-disclosure-prep'], ['境外客户报告资料受理', '/customer?scenarioCode=overseas-report-prep']]
+  }
+};
 let orgId;
 let catalog = [];
 let referenceLoad = 0;
+
+function showIntent(button) {
+  const {title, note, links} = intents[button.dataset.intent];
+  for (const option of intentButtons) option.setAttribute('aria-pressed', String(option === button));
+  element('intent-title').textContent = title;
+  element('intent-note').textContent = note;
+  element('intent-links').replaceChildren(...links.map(([label, href]) => {
+    const link = document.createElement('a');
+    link.className = 'intent-link';
+    link.href = href;
+    link.textContent = label;
+    return link;
+  }));
+}
 
 async function loadCatalog() {
   const previousIndustry = industry.value;
@@ -140,4 +177,6 @@ referenceRetry.addEventListener('click', async () => {
   if (!referenceRetry.hidden) referenceRetry.focus();
   else (references.querySelector('a') ?? scenario).focus();
 });
+for (const button of intentButtons) button.addEventListener('click', () => showIntent(button));
+if (intentButtons.length) showIntent(intentButtons.find(button => button.getAttribute('aria-pressed') === 'true') ?? intentButtons[0]);
 loadCatalog();

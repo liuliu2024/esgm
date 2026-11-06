@@ -9,6 +9,8 @@ test('sample preview starts with a frozen report in the independent review queue
   assert.equal(home.status, 200);
   const homepage = await home.text();
   assert.match(homepage, /id="home-industry"/);
+  assert.deepEqual([...homepage.matchAll(/data-intent="([^"]+)"/g)].map(match => match[1]),
+    ['buyer', 'inventory', 'compliance', 'disclosure']);
   const businessLinks = homepage.match(/<ul class="business-list">([\s\S]*?)<\/ul>/)?.[1] ?? '';
   assert.equal([...businessLinks.matchAll(/<a href=/g)].length, 7);
   assert.match(businessLinks, /scenarioCode=building-inventory#guide/);
