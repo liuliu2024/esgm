@@ -15,6 +15,13 @@ const returnButton = document.querySelector('#return');
 const history = document.querySelector('#history');
 const evidenceStatus = document.querySelector('#evidence-status');
 const evidenceList = document.querySelector('#evidence-list');
+const factorForm = document.querySelector('#factor-reference-form');
+const factorBasis = document.querySelector('#factor-accounting-basis');
+const factorYear = document.querySelector('#factor-data-year');
+const factorSearch = document.querySelector('#factor-reference-search');
+const factorStatus = document.querySelector('#factor-reference-status');
+const factorError = document.querySelector('#factor-reference-error');
+const factorResults = document.querySelector('#factor-reference-results');
 const reportPanel = document.querySelector('#report-review');
 const reportList = document.querySelector('#report-review-list');
 const reportListStatus = document.querySelector('#report-review-list-status');
@@ -346,8 +353,50 @@ refreshButton.addEventListener('click', () => {
 nextPage.addEventListener('click', () => {
   if (!saving && cursor) void loadQueue(true);
 });
+factorForm.addEventListener('change', () => {
+  factorStatus.textContent = factorError.textContent = '';
+  factorResults.replaceChildren();
+  factorResults.hidden = true;
+});
+factorForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (factorSearch.disabled) return;
+  factorSearch.disabled = factorBasis.disabled = factorYear.disabled = true;
+  factorStatus.textContent = '正在查询因子…';
+  factorError.textContent = '';
+  factorResults.hidden = true;
+  factorResults.replaceChildren();
+  const query = new URLSearchParams({ orgId, accountingBasis: factorBasis.value, regionCode: 'CN', dataYear: factorYear.value });
+  try {
+    const { items } = await request(`/v1/professional/factor-references?${query}`);
+    for (const item of items) {
+      const row = document.createElement('li');
+      const value = document.createElement('strong');
+      const source = document.createElement('a');
+      const note = document.createElement('p');
+      value.textContent = `${item.value} ${item.outputUnit}/${item.inputUnit} · 全国 · ${item.dataYear} 年 · 版本 ${item.version}`;
+      source.href = item.sourceUrl;
+      source.target = '_blank';
+      source.rel = 'noopener noreferrer';
+      source.textContent = `${item.sourceTitle} · ${item.sourceLocator}`;
+      note.textContent = item.usageNote;
+      const reference = document.createElement('p');
+      reference.append(source);
+      row.append(value, reference, note);
+      factorResults.append(row);
+    }
+    factorResults.hidden = items.length === 0;
+    factorStatus.textContent = items.length ? `找到 ${items.length} 条因子参考。` : '该口径和年份暂无全国因子。';
+  } catch (error) {
+    factorStatus.textContent = '';
+    factorError.textContent = error.message;
+  } finally {
+    factorSearch.disabled = factorBasis.disabled = factorYear.disabled = false;
+  }
+});
 try {
   ({ orgId } = await getContext());
+  factorSearch.disabled = false;
   await loadQueue();
 } catch (error) {
   workspaceError.textContent = error.message;

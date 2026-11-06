@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>碳有据 · 企业碳业务入口</title>
+  <link rel="stylesheet" href="/shared.css">
+  <link rel="stylesheet" href="/home.css">
+  <script type="module" src="/home.mjs"></script>
+</head>
+<body>
+  <header class="home-header">
+    <a class="home-brand" href="/" aria-current="page">碳有据</a>
+    <nav aria-label="主导航">
+      <a href="/modules">七大业务模块</a>
+      <a href="/customer">企业工作台</a>
+    </nav>
+  </header>
+  <main>
+    <div class="home-intro">
+      <h1>企业碳业务入口</h1>
+      <p>按行业选择办理场景，核对交付对象和政策原文。</p>
+    </div>
+    <div class="home-grid">
+      <section class="home-panel" aria-labelledby="home-select-title">
+        <h2 id="home-select-title">选择办理场景</h2>
+        <div class="home-step">
+          <label for="home-industry"><span aria-hidden="true">1</span>行业</label>
+          <select id="home-industry" disabled><option value="">请选择行业</option></select>
+        </div>
+        <div class="home-step">
+          <label for="home-scenario"><span aria-hidden="true">2</span>办理场景</label>
+          <select id="home-scenario" disabled><option value="">请先选择行业</option></select>
+        </div>
+        <p id="home-catalog-state" role="status">正在读取行业场景…</p>
+        <p id="home-catalog-error" role="alert"></p>
+        <button id="home-catalog-retry" type="button" hidden>重试</button>
+        <a id="home-create" class="home-primary" hidden>进入工作台办理 <span aria-hidden="true">→</span></a>
+      </section>
+      <section class="home-panel home-context" aria-labelledby="home-context-title">
+        <h2 id="home-context-title">场景资料</h2>
+        <p id="home-context-empty" class="home-muted">选择办理场景后查看用途、交付对象和参考资料。</p>
+        <div id="home-context" hidden>
+          <h3 id="home-scenario-title"></h3>
+          <dl class="home-context-fields">
+            <dt>办理用途</dt><dd id="home-scenario-purpose"></dd>
+            <dt>交付对象</dt><dd id="home-scenario-recipient"></dd>
+            <dt>适用规则</dt><dd><span class="home-status">待确认</span></dd>
+          </dl>
+          <h3 class="home-references-heading">官方参考资料</h3>
+          <p id="home-reference-state" class="home-muted" role="status"></p>
+          <p id="home-reference-error" role="alert"></p>
+          <button id="home-reference-retry" type="button" hidden>重新读取资料</button>
+          <ul id="home-references"></ul>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

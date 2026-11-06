@@ -2,6 +2,47 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { startPreview } from '../infra/preview.mjs';
 
+test('sample preview starts with a frozen report in the independent review queue', async t => {
+  const preview = await startPreview(0, { sample: true });
+  t.after(() => preview.close());
+  const home = await fetch(preview.origin + '/');
+  assert.equal(home.status, 200);
+  assert.match(await home.text(), /id="home-industry"/);
+  const directory = await fetch(preview.origin + '/modules');
+  assert.equal(directory.status, 200);
+  const modules = await directory.text();
+  assert.equal([...modules.matchAll(/<details>/g)].length, 7);
+  assert.match(modules, /href="\/\?industry=buildings"/);
+  const get = async path => {
+    const response = await fetch(preview.origin + path);
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const { orgId } = await get('/demo/context');
+  const { cases: [task] } = await get(`/v1/customer/cases?orgId=${orgId}`);
+  assert.equal(task.purpose, '合成样本｜采购方碳报告');
+  assert.equal(task.status, 'submitted');
+  const path = `/v1/customer/cases/${task.id}/internal-report-drafts`;
+  const { items: [draft] } = await get(`${path}?orgId=${orgId}`);
+  const frozen = await get(`${path}/${draft.draftId}?orgId=${orgId}`);
+  assert.equal(frozen.report.summary.totalKgCO2e, '900');
+  assert.equal(frozen.report.items.length, 2);
+  assert.equal(frozen.externalDeliveryEligible, false);
+  const professional = `/v1/professional/cases/${task.id}/internal-report-drafts`;
+  const { items: [queued] } = await get(`${professional}?orgId=${orgId}`);
+  assert.equal(queued.draftId, draft.draftId);
+  const reviewPath = `${professional}/${draft.draftId}/review`;
+  const { review } = await get(`${reviewPath}?orgId=${orgId}`);
+  assert.equal(review.status, 'submitted');
+  const decision = await fetch(preview.origin + reviewPath, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orgId, decision: 'reviewed' })
+  });
+  assert.equal(decision.status, 200);
+  assert.equal((await decision.json()).review.status, 'reviewed');
+  assert.equal((await get(`/v1/customer/cases/${task.id}?orgId=${orgId}`)).status, 'submitted');
+});
+
 test('three preview entries use the same intake and review workflow', async () => {
   const preview = await startPreview();
   try {

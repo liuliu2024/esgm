@@ -77,7 +77,8 @@ after(async () => { await db?.close(); });
 test('004 upgrades a populated 003 database without changing registered materials', async () => {
   assert.deepEqual(await migrate(db.admin), ['004_evidence_receipts.sql', '005_evidence_scan.sql',
     '006_evidence_revision.sql', '007_activity_import_ledger.sql', '008_calculation_snapshot.sql',
-    '009_internal_report_draft.sql', '010_intake_scope.sql', '011_internal_report_review.sql']);
+    '009_internal_report_draft.sql', '010_intake_scope.sql', '011_internal_report_review.sql',
+    '012_factor_reference.sql']);
   assert.deepEqual(await migrate(db.admin), []);
   await asActor(customer, async tx => {
     const {rows} = await tx.query('SELECT * FROM carbon.case_evidence ORDER BY title');

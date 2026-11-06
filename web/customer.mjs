@@ -634,7 +634,7 @@ list.addEventListener('click', async event => {
   }
 });
 
-newCase.addEventListener('click', async () => {
+async function openCreate(preselectedId) {
   creating = true;
   element('create-error').textContent = '';
   renderList();
@@ -642,6 +642,13 @@ newCase.addEventListener('click', async () => {
   setBusy(true);
   try {
     await loadCatalog();
+    const preselected = catalog.find(item => item.id === preselectedId);
+    if (preselected) {
+      industry.value = preselected.industryCode;
+      renderScenario();
+      scenario.value = preselected.id;
+      renderScenarioContext();
+    }
   } catch (error) {
     industry.replaceChildren(new Option('无法读取行业', ''));
     scenario.replaceChildren();
@@ -651,7 +658,9 @@ newCase.addEventListener('click', async () => {
     setBusy(false);
     industry.focus();
   }
-});
+}
+
+newCase.addEventListener('click', () => openCreate());
 
 industry.addEventListener('change', renderScenario);
 scenario.addEventListener('change', renderScenarioContext);
@@ -899,6 +908,8 @@ try {
   await loadPage();
   newCase.disabled = false;
   refresh.disabled = false;
+  const preselectedId = new URLSearchParams(location.search).get('scenario');
+  if (preselectedId) await openCreate(preselectedId);
 } catch (error) {
   listState.textContent = '无法读取受理单';
   feedback.textContent = error.message;

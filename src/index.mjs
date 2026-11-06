@@ -331,6 +331,20 @@ export function createCarbonApi(database, {quarantine} = {}) {
         }
 
         if (method === 'GET') {
+          if (path === '/v1/professional/factor-references') {
+            queryFields(query, ['orgId', 'accountingBasis', 'regionCode', 'dataYear']);
+            const orgId = uuid(query.get('orgId'), '组织');
+            const accountingBasis = query.get('accountingBasis');
+            const regionCode = query.get('regionCode');
+            const dataYear = query.get('dataYear');
+            if (accountingBasis !== 'product_footprint' && accountingBasis !== 'organization_electricity_co2') {
+              badRequest('请选择支持的核算口径。');
+            }
+            if (!/^[A-Z]{2}(?:-[A-Z0-9]{1,3})?$/.test(regionCode)) badRequest('请提供有效的地区编码。');
+            if (!/^(?!0000)\d{4}$/.test(dataYear)) badRequest('数据年份必须为四位年份。');
+            return {status: 200, body: await intake.listFactorReferences(scope,
+              orgId, accountingBasis, regionCode, Number(dataYear))};
+          }
           const reportReview = routes.internalReportReview.exec(path);
           if (reportReview) {
             queryFields(query, ['orgId']);

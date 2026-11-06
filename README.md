@@ -14,11 +14,22 @@ npm test
 
 `npm run demo` 用合成样本复验材料接收、入账、冻结演示稿、历史来源和受理复核。演示材料仅接收，状态为待检查。预期结果包含 `frozenTotalKgCO2e: "900"`。台账更正到 `1400` kWh 后，旧报告的来源仍是 `1000` kWh。报告的正式资格和外发资格均为 `false`。演示失败时命令返回非零状态。
 
-`npm run preview` 启动同一数据库上的三个独立入口：
+`npm run preview -- --sample` 启动本机演示，并预装一份已送审的合成报告。`npm run preview` 可从空任务列表开始。可用 `CARBON_PREVIEW_PORT` 选择端口。
 
+- 客户首页 `http://127.0.0.1:4173/`
+- 七项业务 `http://127.0.0.1:4173/modules`
 - 企业工作台 `http://127.0.0.1:4173/customer`
 - 专业作业台 `http://127.0.0.1:4173/professional`
 - 组织审计 `http://127.0.0.1:4173/admin`
+
+### 三分钟演示
+
+1. 从客户首页选择工业制造及采购方资料准备，查看原文依据，点击办理进入预选场景的表单。切回任务工作台，打开「合成样本｜采购方碳报告」，在「历史演示稿」查看已送审版本。
+2. 在专业作业台刷新队列，打开同一任务，展开「演示稿复核」。核对 `900 kgCO₂e` 和两条来源，记录演示复核结论。受理单有独立的批准和退回操作。
+3. 在组织审计刷新，查看该组织的受理提交与处理历史。报告结论在企业和专业端的对应稿件中查看。
+4. 从客户首页进入「业务模块」，展开七项业务，查看准备材料、预期成果和已启用入口。
+
+重启演示服务即可重新走一遍。合成样例保留禁止外发标识。
 
 用企业页新建受理、登记材料并提交，专业页退回，企业页补正重提，再从专业页批准。管理页可查看每次操作、退回理由和补正。预览服务只监听本机，使用临时库、演示身份和临时文件隔离区。用合成 PDF 或 PNG 演示文件接收，接收结果为待检查。
 
@@ -73,6 +84,7 @@ npm test
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/revisions/:revision/evidence` | `orgId`，返回已提交修订所引用的材料和文件摘要 |
 | 专业复核人 | `GET /v1/professional/cases/:id` | 查询参数 `orgId` |
 | 专业复核人 | `POST /v1/professional/cases/:id/review` | `orgId, revision, decision`。退回时必填 `reason` |
+| 专业复核人 | `GET /v1/professional/factor-references` | `orgId, accountingBasis, regionCode, dataYear`，只读查询匹配的[官方参考因子](docs/factor-references.md) |
 | 组织管理员 | `GET /v1/admin/organizations/:orgId/audit` | 可选 `limit, offset` |
 | 组织管理员 | `GET /v1/admin/organizations/:orgId/grants` | 本人角色，可选 `limit, offset` |
 

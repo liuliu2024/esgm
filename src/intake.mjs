@@ -518,6 +518,21 @@ export function createIntakeService(database, quarantine) {
       });
     },
 
+    listFactorReferences(scope, orgId, accountingBasis, regionCode, dataYear) {
+      return inWorkspace(scope, async tx => {
+        await requireRole(tx, scope, orgId, 'reviewer');
+        const {rows: items} = await tx.query(`
+          SELECT factor_id AS "factorId", version, accounting_basis AS "accountingBasis", region_code AS "regionCode",
+            data_year AS "dataYear", value::text AS value, input_unit AS "inputUnit", output_unit AS "outputUnit",
+            source_title AS "sourceTitle", source_url AS "sourceUrl", source_locator AS "sourceLocator", usage_note AS "usageNote"
+          FROM catalog.factor_reference_version
+          WHERE accounting_basis = $1 AND region_code = $2 AND data_year = $3
+          ORDER BY factor_id, version DESC
+        `, [accountingBasis, regionCode, dataYear]);
+        return {items};
+      });
+    },
+
     listScenarioReferences(scope, orgId, scenarioReleaseId) {
       return inWorkspace(scope, async tx => {
         await requireRole(tx, scope, orgId, 'customer');
