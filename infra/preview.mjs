@@ -21,6 +21,7 @@ const pages = {
   '/shared.mjs': 'shared.mjs',
   '/customer.mjs': 'customer.mjs',
   '/professional.mjs': 'professional.mjs',
+  '/factor-decision.mjs': 'factor-decision.mjs',
   '/admin.mjs': 'admin.mjs'
 };
 const mediaTypes = { html: 'text/html', css: 'text/css', mjs: 'text/javascript' };

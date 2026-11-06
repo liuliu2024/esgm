@@ -1,4 +1,5 @@
 import { evidenceStatusLabel, getContext, internalReportHref, renderCasePreparation, renderHistory, renderRevisionEvidence, request, statusLabel } from '/shared.mjs';
+import { showFactorDecision } from '/factor-decision.mjs';
 
 const queue = document.querySelector('#queue');
 const queueStatus = document.querySelector('#queue-status');
@@ -238,6 +239,7 @@ async function loadCase(item, focus = false) {
   viewing = selection;
   revisionEvidenceView = undefined;
   revisionEvidenceSection.hidden = true;
+  showFactorDecision();
   resetReportView();
   detail.hidden = true;
   detailStatus.textContent = '正在加载详情';
@@ -259,6 +261,8 @@ async function loadCase(item, focus = false) {
     if (submitted.length) {
       revisionEvidenceView = { base };
       void loadRevisionEvidence();
+      showFactorDecision({base, orgId, revision: submitted[0].revision,
+        canDecide: canReview && submitted[0].revision === current.revision});
     }
     evidenceList.replaceChildren();
     evidenceList.hidden = true;
@@ -360,7 +364,12 @@ reason.addEventListener('input', () => {
 reportPanel.addEventListener('toggle', () => {
   if (reportPanel.open && reportView) void loadReports(reportView);
 });
-evidenceRevision.addEventListener('change', () => void loadRevisionEvidence());
+evidenceRevision.addEventListener('change', () => {
+  void loadRevisionEvidence();
+  const revision = Number(evidenceRevision.value);
+  showFactorDecision({base: revisionEvidenceView.base, orgId, revision,
+    canDecide: selected.nextAction === 'review' && selected.revision === revision});
+});
 reportMore.addEventListener('click', () => {
   if (reportView?.cursor) void loadReports(reportView, reportView.cursor);
 });

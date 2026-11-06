@@ -98,6 +98,34 @@
             <p id="revision-evidence-error" role="alert"></p>
             <ul id="revision-evidence-list" class="history-list" hidden></ul>
           </section>
+          <details id="case-factor-decision" hidden>
+            <summary>因子适用决定</summary>
+            <div class="stack">
+              <p id="case-factor-status" role="status"></p>
+              <div id="case-factor-result" class="stack" hidden></div>
+              <p id="case-factor-error" role="alert"></p>
+              <form id="case-factor-form" hidden>
+                <div class="actions">
+                  <label for="case-factor-basis">核算口径</label>
+                  <select id="case-factor-basis">
+                    <option value="product_footprint">产品电力碳足迹</option>
+                    <option value="organization_electricity_co2">电力消费二氧化碳排放</option>
+                  </select>
+                  <label for="case-factor-year">因子数据年份</label>
+                  <input id="case-factor-year" type="number" min="1900" max="9999" step="1" required>
+                  <button id="case-factor-search" type="button">查找全国参考</button>
+                </div>
+                <label for="case-factor-choice">参考因子版本</label>
+                <select id="case-factor-choice" required></select>
+                <p id="case-factor-source" class="muted"></p>
+                <label for="case-factor-method">适用方法或规则版本</label>
+                <input id="case-factor-method" maxlength="500" required>
+                <label for="case-factor-rationale">适用依据</label>
+                <textarea id="case-factor-rationale" maxlength="500" required placeholder="说明覆盖期间、地域和使用依据"></textarea>
+                <button class="primary" type="submit">记录因子决定</button>
+              </form>
+            </div>
+          </details>
           <p id="review-error" role="alert"></p>
           <form id="review-form" hidden>
             <label for="reason">退回理由</label>

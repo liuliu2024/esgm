@@ -21,3 +21,11 @@
 - 正式计算接入须先确认方法、适用地域和期间、使用条款及审批责任，再在计算明细中固定版本。采购方报告还须经过独立审批和明确的收件授权。
 
 参照 Brightway 数据包对版本和数据许可的拆分，以及 Electricity Maps 对地域和因子来源的区分。前者面向生命周期评价矩阵，后者面向电网数据与流追踪。目录采用现有 PostgreSQL 和迁移机制，仅借鉴元数据设计。[Brightway bw_processing](https://github.com/brightway-lca/bw_processing) · [Electricity Maps](https://github.com/electricitymaps/electricitymaps-contrib)
+
+## 按提交版本记录专业决定
+
+专业人员在受理提交后，按 `factorId`、`factorVersion`、`accountingBasis`、`regionCode` 和 `dataYear` 精确选择一个电力因子。`methodReference` 记录所用方法或规则版本，`rationale` 记录为何适用，包括覆盖期间、地域与使用依据。因子数值、输入与输出单位及出处由服务从只读目录取值。
+
+- `POST /v1/professional/cases/:caseId/revisions/:revision/factor-decision`，请求包含 `orgId` 与上述选择和依据。仅当前待复核提交可记录一次，由独立专业人员操作。
+- `GET /v1/{customer|professional}/cases/:caseId/revisions/:revision/factor-decision?orgId=…`。按任务授权查看某次提交决定，保留决定人、时间、方法、理由、因子版本及官方出处。补正重提保留旧决定，新提交可单独记录。
+- 此记录固定因子选用决定和依据，正式报告及外发资格仍为 `false`。核算快照还需锁定活动修订、确认适用规则和数据覆盖。`kgCO2` 与 `kgCO2e` 分别核对。

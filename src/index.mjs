@@ -14,6 +14,7 @@ const routes = {
   history: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/history$/,
   evidence: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/evidence$/,
   revisionEvidence: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/evidence$/,
+  factorDecision: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/factor-decision$/,
   evidenceFile: /^\/v1\/customer\/cases\/([^/]+)\/evidence\/([^/]+)\/file$/,
   activityPreview: /^\/v1\/customer\/cases\/([^/]+)\/imports\/preview$/,
   activityImports: /^\/v1\/customer\/cases\/([^/]+)\/imports$/,
@@ -106,6 +107,17 @@ function requiredText(value, label, maximum = 500) {
   return value.trim();
 }
 
+function factorFilters(accountingBasis, regionCode, dataYear) {
+  if (accountingBasis !== 'product_footprint' && accountingBasis !== 'organization_electricity_co2') {
+    badRequest('请选择支持的核算口径。');
+  }
+  if (typeof regionCode !== 'string' || !/^[A-Z]{2}(?:-[A-Z0-9]{1,3})?$/.test(regionCode)) {
+    badRequest('请提供有效的地区编码。');
+  }
+  if (!Number.isInteger(dataYear) || dataYear < 1 || dataYear > 9999) badRequest('数据年份必须为四位年份。');
+  return {accountingBasis, regionCode, dataYear};
+}
+
 function intakeScope(value) {
   if (value === undefined) return null;
   const {subjectType, subjectName, jurisdiction, reportingYear, recipient} = commandBody(value,
@@ -191,6 +203,10 @@ function errorResponse(error) {
     || error.constraint === 'internal_report_review_transition')) {
     return {status: 409, body: {error: {code: 'REPORT_REVIEW_CONFLICT', message: '任务或演示稿当前不能完成该复核操作。'}}};
   }
+  if ((error?.code === '23514' && error.constraint === 'case_factor_decision_submission_state')
+    || (error?.code === '23505' && error.constraint === 'case_factor_decision_pkey')) {
+    return {status: 409, body: {error: {code: 'FACTOR_DECISION_CONFLICT', message: '仅当前待复核提交可记录一次因子选择。'}}};
+  }
   if (error?.code === '23514') {
     const importErrors = {
       activity_import_not_found: [404, 'IMPORT_NOT_FOUND', '未找到可访问的导入批次。'],
@@ -241,6 +257,22 @@ export function createCarbonApi(database, {quarantine} = {}) {
               scope, orgId, caseId, evidenceId, mediaType, bytes)};
           }
           queryFields(query, []);
+          const factorDecision = routes.factorDecision.exec(path);
+          if (factorDecision?.[1] === 'professional') {
+            const input = commandBody(request.body, ['orgId', 'factorId', 'factorVersion', 'accountingBasis', 'regionCode',
+              'dataYear', 'methodReference', 'rationale']);
+            const [, , caseId, version] = factorDecision;
+            if (typeof input.factorId !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(input.factorId)) {
+              badRequest('请提供有效的因子标识。');
+            }
+            return {status: 201, body: await intake.recordFactorDecision(scope,
+              uuid(input.orgId, '组织'), uuid(caseId, '任务'), revisionParam(version), {
+                factorId: input.factorId, factorVersion: revision(input.factorVersion),
+                ...factorFilters(input.accountingBasis, input.regionCode, input.dataYear),
+                methodReference: requiredText(input.methodReference, '适用方法或规则版本'),
+                rationale: requiredText(input.rationale, '适用依据')
+              })};
+          }
           const submitReportReview = routes.submitInternalReportReview.exec(path);
           if (submitReportReview) {
             const input = commandBody(request.body, ['orgId']);
@@ -349,13 +381,16 @@ export function createCarbonApi(database, {quarantine} = {}) {
             const accountingBasis = query.get('accountingBasis');
             const regionCode = query.get('regionCode');
             const dataYear = query.get('dataYear');
-            if (accountingBasis !== 'product_footprint' && accountingBasis !== 'organization_electricity_co2') {
-              badRequest('请选择支持的核算口径。');
-            }
-            if (!/^[A-Z]{2}(?:-[A-Z0-9]{1,3})?$/.test(regionCode)) badRequest('请提供有效的地区编码。');
             if (!/^(?!0000)\d{4}$/.test(dataYear)) badRequest('数据年份必须为四位年份。');
             return {status: 200, body: await intake.listFactorReferences(scope,
-              orgId, accountingBasis, regionCode, Number(dataYear))};
+              orgId, factorFilters(accountingBasis, regionCode, Number(dataYear)))};
+          }
+          const factorDecision = routes.factorDecision.exec(path);
+          if (factorDecision) {
+            queryFields(query, ['orgId']);
+            const [, role, caseId, version] = factorDecision;
+            return {status: 200, body: await intake.readFactorDecision(scope,
+              uuid(query.get('orgId'), '组织'), uuid(caseId, '任务'), revisionParam(version), role === 'customer')};
           }
           const reportReview = routes.internalReportReview.exec(path);
           if (reportReview) {

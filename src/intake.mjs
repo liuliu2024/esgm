@@ -20,6 +20,9 @@ const evidenceFields = `evidence.id, evidence.case_id AS "caseId", evidence.org_
   evidence.source_description AS "sourceDescription", evidence.created_at AS "createdAt"`;
 const catalogFields = ['industryCode', 'industryName', 'title', 'purpose', 'recipient'];
 const referenceFields = ['code', 'title', 'publisher', 'sourceUrl', 'scopeNote'];
+const factorReferenceFields = `factor_id AS "factorId", version, accounting_basis AS "accountingBasis", region_code AS "regionCode",
+  data_year AS "dataYear", value::text AS value, input_unit AS "inputUnit", output_unit AS "outputUnit",
+  source_title AS "sourceTitle", source_url AS "sourceUrl", source_locator AS "sourceLocator", usage_note AS "usageNote"`;
 const activityTemplate = 'activity-csv-v1';
 const snapshotSchemaVersion = 1;
 const snapshotFields = `id AS "snapshotId", case_id AS "caseId", created_at AS "createdAt",
@@ -229,6 +232,24 @@ async function readSnapshot(tx, scope, orgId, caseId, snapshotId) {
   `, [scope.tenantId, orgId, caseId, snapshotId]);
   if (!snapshot) throw new CarbonError(404, 'CALCULATION_SNAPSHOT_NOT_FOUND', '未找到可访问的计算快照。');
   return {...snapshot, createdAt: new Date(snapshot.createdAt).toISOString()};
+}
+
+async function readStoredFactorDecision(tx, key) {
+  const {rows: [decision]} = await tx.query(`
+    SELECT decision.case_id AS "caseId", decision.submission_revision AS "submissionRevision",
+      decision.decided_by AS "decidedBy", decision.decided_at AS "decidedAt",
+      decision.method_reference AS "methodReference", decision.rationale, row_to_json(factor) AS factor
+    FROM carbon.case_factor_decision AS decision
+    JOIN LATERAL (
+      SELECT ${factorReferenceFields} FROM catalog.factor_reference_version
+      WHERE factor_id = decision.factor_id AND version = decision.factor_version
+    ) AS factor ON true
+    WHERE decision.tenant_id = $1 AND decision.org_id = $2 AND decision.case_id = $3
+      AND decision.submission_revision = $4
+  `, key);
+  if (!decision) throw new CarbonError(404, 'FACTOR_DECISION_NOT_FOUND', '未找到该提交的因子选择记录。');
+  return {decision: {...decision, decidedAt: new Date(decision.decidedAt).toISOString(),
+    formalReportEligible: false, externalDeliveryEligible: false}};
 }
 
 function draftResponse({draftId, createdAt, payload}) {
@@ -551,18 +572,48 @@ export function createIntakeService(database, quarantine) {
       });
     },
 
-    listFactorReferences(scope, orgId, accountingBasis, regionCode, dataYear) {
+    listFactorReferences(scope, orgId, {accountingBasis, regionCode, dataYear}) {
       return inWorkspace(scope, async tx => {
         await requireRole(tx, scope, orgId, 'reviewer');
         const {rows: items} = await tx.query(`
-          SELECT factor_id AS "factorId", version, accounting_basis AS "accountingBasis", region_code AS "regionCode",
-            data_year AS "dataYear", value::text AS value, input_unit AS "inputUnit", output_unit AS "outputUnit",
-            source_title AS "sourceTitle", source_url AS "sourceUrl", source_locator AS "sourceLocator", usage_note AS "usageNote"
+          SELECT ${factorReferenceFields}
           FROM catalog.factor_reference_version
           WHERE accounting_basis = $1 AND region_code = $2 AND data_year = $3
           ORDER BY factor_id, version DESC
         `, [accountingBasis, regionCode, dataYear]);
         return {items};
+      });
+    },
+
+    readFactorDecision(scope, orgId, caseId, submissionRevision, customerOnly) {
+      return inWorkspace(scope, async tx => {
+        await readVisibleCase(tx, scope, orgId, caseId, customerOnly);
+        return readStoredFactorDecision(tx, [scope.tenantId, orgId, caseId, submissionRevision]);
+      });
+    },
+
+    recordFactorDecision(scope, orgId, caseId, submissionRevision, input) {
+      return inWorkspace(scope, async tx => {
+        const task = await readVisibleCase(tx, scope, orgId, caseId, false);
+        if (task.createdBy === scope.actorId) {
+          throw new CarbonError(403, 'SELF_REVIEW_FORBIDDEN', '发起人不能复核自己的任务。');
+        }
+        if (task.status !== 'submitted' || task.revision !== submissionRevision) {
+          throw new CarbonError(409, 'FACTOR_DECISION_CONFLICT', '仅当前待复核提交可记录一次因子选择。');
+        }
+        const key = [scope.tenantId, orgId, caseId, submissionRevision];
+        const {rows} = await tx.query(`
+          INSERT INTO carbon.case_factor_decision (tenant_id, org_id, case_id, submission_revision,
+            factor_id, factor_version, decided_by, request_id, method_reference, rationale)
+          SELECT $1, $2, $3, $4, factor_id, version, $10, $11, $12, $13
+          FROM catalog.factor_reference_version
+          WHERE factor_id = $5 AND version = $6 AND accounting_basis = $7
+            AND region_code = $8 AND data_year = $9 AND input_unit = 'kWh'
+          RETURNING submission_revision
+        `, [...key, input.factorId, input.factorVersion, input.accountingBasis, input.regionCode, input.dataYear,
+          scope.actorId, scope.requestId, input.methodReference, input.rationale]);
+        if (!rows.length) throw new CarbonError(404, 'FACTOR_REFERENCE_NOT_FOUND', '未找到与所选口径和期间匹配的因子版本。');
+        return readStoredFactorDecision(tx, key);
       });
     },
 
