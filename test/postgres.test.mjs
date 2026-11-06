@@ -116,13 +116,15 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
     assert.equal(draft.snapshotId, frozen.body.snapshotId);
     assert.equal(draft.externalDeliveryEligible, false);
     assert.equal(draft.formalReportEligible, false);
+    assert.equal(draft.template.version, 2);
+    assert.deepEqual(draft.report.scope.declaredScope, scope);
     assert.equal(draft.report.watermark, '内部演示｜合成因子｜禁止外发');
     const draftPath = `${drafts}/${draft.draftId}?orgId=${orgId}`;
     assert.deepEqual(await dispatch(customer, 'GET', draftPath), { status: 200, body: draft });
     assert.equal((await dispatch(reviewer, 'GET', draftPath)).status, 403);
     const history = await dispatch(customer, 'GET', `${drafts}?orgId=${orgId}&limit=1`);
     assert.deepEqual(history, { status: 200, body: { items: [{ draftId: draft.draftId,
-      snapshotId: draft.snapshotId, createdAt: draft.createdAt, from: '2026-01', to: '2026-01', templateVersion: 1 }],
+      snapshotId: draft.snapshotId, createdAt: draft.createdAt, from: '2026-01', to: '2026-01', templateVersion: 2 }],
       nextCursor: null } });
     let evidenceReference;
     if (scannerDatabase) {

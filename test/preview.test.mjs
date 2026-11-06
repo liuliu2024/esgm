@@ -44,7 +44,7 @@ test('three preview entries use the same intake and review workflow', async () =
     assert.deepEqual(manufacturingReferences.items.map(item => item.code), ['gbt-24067-2024', 'electricity-pcf-2024']);
     assert.deepEqual(buildingReferences.items.map(item => item.code), ['electricity-co2-2023']);
     const scope = { subjectType: 'product', subjectName: '合成设备', jurisdiction: '上海市',
-      reportingYear: '2026', recipient: '样例采购方' };
+      reportingYear: '2025', recipient: '样例采购方' };
     const created = await post('/v1/customer/cases', {
       orgId, scenarioReleaseId: selected.id, purpose: '准备采购方碳数据报告', scope
     }, 201);
@@ -72,6 +72,9 @@ test('three preview entries use the same intake and review workflow', async () =
     assert.equal(draft.report.watermark, '内部演示｜合成因子｜禁止外发');
     assert.equal(draft.report.summary.totalTCO2e, '0.9');
     assert.equal(draft.externalDeliveryEligible, false);
+    assert.equal(draft.template.version, 2);
+    assert.deepEqual(draft.report.scope.declaredScope, scope);
+    assert.equal(draft.report.scope.from, '2026-01');
     const electricity = draft.report.items.find(item => item.source === 'electricity');
     const activityQuery = new URLSearchParams({orgId, period: electricity.period, source: electricity.source,
       revision: electricity.lineage.activityRevision});
@@ -80,7 +83,7 @@ test('three preview entries use the same intake and review workflow', async () =
     assert.equal(sourceActivity.lineage.batchId, imported.batchId);
     const draftHistory = await read(`${customer}/internal-report-drafts?orgId=${orgId}`);
     assert.deepEqual(draftHistory, { items: [{ draftId: draft.draftId, snapshotId: snapshot.snapshotId,
-      createdAt: draft.createdAt, from: '2026-01', to: '2026-01', templateVersion: 1 }], nextCursor: null });
+      createdAt: draft.createdAt, from: '2026-01', to: '2026-01', templateVersion: 2 }], nextCursor: null });
     const evidence = await post(customer + '/evidence', {
       orgId, title: '月度用电账单', sourceDescription: '园区供电结算记录'
     }, 201);

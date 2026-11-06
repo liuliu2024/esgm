@@ -23,7 +23,6 @@ const activityTemplate = 'activity-csv-v1';
 const snapshotSchemaVersion = 1;
 const snapshotFields = `id AS "snapshotId", case_id AS "caseId", created_at AS "createdAt",
   schema_version AS "schemaVersion", payload AS result`;
-const draftTemplate = {id: 'internal-management-demo', version: 1, locale: 'zh-CN'};
 const draftFields = `id AS "draftId", created_at AS "createdAt", payload`;
 
 function accessDenied() {
@@ -308,12 +307,18 @@ export function createIntakeService(database, quarantine) {
           || result.coverage.status !== 'complete') {
           throw new CarbonError(409, 'REPORT_DRAFT_SOURCE_UNSUPPORTED', '请选择支持的完整计算快照。');
         }
+        const template = {id: 'internal-management-demo', version: task.scope ? 2 : 1, locale: 'zh-CN'};
+        const reportScope = {caseId, from: result.from, to: result.to, purpose: task.purpose, snapshotCreatedAt: snapshot.createdAt};
+        if (task.scope) {
+          const {subjectType, subjectName, jurisdiction, reportingYear, recipient} = task.scope;
+          reportScope.declaredScope = {subjectType, subjectName, jurisdiction, reportingYear, recipient};
+        }
         const payload = {
           caseId, snapshotId, status: 'draft', mode: 'synthetic', formalReportEligible: false,
-          externalDeliveryEligible: false, template: draftTemplate,
+          externalDeliveryEligible: false, template,
           report: {
             title: '内部管理报告演示稿', watermark: '内部演示｜合成因子｜禁止外发',
-            scope: {caseId, from: result.from, to: result.to, purpose: task.purpose, snapshotCreatedAt: snapshot.createdAt},
+            scope: reportScope,
             summary: {coverage: result.coverage, totalKgCO2e: result.totalKgCO2e, totalTCO2e: result.totalTCO2e},
             model: result.model, items: result.items,
             limitations: [
@@ -323,7 +328,7 @@ export function createIntakeService(database, quarantine) {
             ]
           }
         };
-        const key = [scope.tenantId, orgId, caseId, snapshotId, draftTemplate.id, draftTemplate.version];
+        const key = [scope.tenantId, orgId, caseId, snapshotId, template.id, template.version];
         const {rows: [created]} = await tx.query(`
           INSERT INTO carbon.internal_report_draft
             (tenant_id, org_id, case_id, snapshot_id, template_id, template_version, id, created_by, request_id, payload)
