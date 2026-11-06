@@ -71,7 +71,8 @@ test('empty database applies migration once and replay preserves its ledger', as
     '004_evidence_receipts.sql', '005_evidence_scan.sql', '006_evidence_revision.sql', '007_activity_import_ledger.sql',
     '008_calculation_snapshot.sql', '009_internal_report_draft.sql', '010_intake_scope.sql',
     '011_internal_report_review.sql', '012_factor_reference.sql', '013_factor_decision.sql',
-    '014_submission_activity.sql', '015_controlled_internal_report.sql', '016_report_delivery.sql']);
+    '014_submission_activity.sql', '015_controlled_internal_report.sql', '016_report_delivery.sql',
+    '017_electricity_factor_catalog.sql']);
   assert.deepEqual(await migrate(db.admin), []);
   const { rows } = await db.admin.transaction(client => client.query(
     'SELECT name FROM carbon_migrations.applied ORDER BY name'));
@@ -114,7 +115,8 @@ test('upgrade a returned 001 intake and preserve two corrections and their revie
     '004_evidence_receipts.sql', '005_evidence_scan.sql', '006_evidence_revision.sql', '007_activity_import_ledger.sql',
     '008_calculation_snapshot.sql', '009_internal_report_draft.sql', '010_intake_scope.sql',
     '011_internal_report_review.sql', '012_factor_reference.sql', '013_factor_decision.sql',
-    '014_submission_activity.sql', '015_controlled_internal_report.sql', '016_report_delivery.sql']);
+    '014_submission_activity.sql', '015_controlled_internal_report.sql', '016_report_delivery.sql',
+    '017_electricity_factor_catalog.sql']);
   assert.deepEqual(await migrate(legacy.admin), []);
   const {rows: historicalSubmissions} = await act(customer, client => client.query(
     'SELECT revision FROM carbon.case_submission WHERE case_id = $1', [caseId]));

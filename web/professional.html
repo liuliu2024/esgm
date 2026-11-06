@@ -33,8 +33,13 @@
           <option value="2024">2024 年</option>
           <option value="2023">2023 年</option>
         </select>
-        <button id="factor-reference-search" type="submit" disabled>查询全国因子</button>
+        <label for="factor-region">适用地域</label>
+        <select id="factor-region" required disabled><option value="">请选择地域</option></select>
+        <button id="factor-reference-search" type="submit" disabled>查询因子</button>
       </form>
+      <p id="factor-region-status" role="status"></p>
+      <p id="factor-region-error" role="alert"></p>
+      <button id="factor-region-retry" type="button" hidden>重新读取地域</button>
       <p id="factor-reference-status" role="status"></p>
       <p id="factor-reference-error" role="alert"></p>
       <ul id="factor-reference-results" class="history-list" hidden></ul>
@@ -136,8 +141,13 @@
                   </select>
                   <label for="case-factor-year">因子数据年份</label>
                   <input id="case-factor-year" type="number" min="1900" max="9999" step="1" required>
-                  <button id="case-factor-search" type="button">查找全国参考</button>
+                  <label for="case-factor-region">适用地域</label>
+                  <select id="case-factor-region" required disabled><option value="">请选择地域</option></select>
+                  <button id="case-factor-search" type="button" disabled>查找参考因子</button>
                 </div>
+                <p id="case-factor-region-status" role="status"></p>
+                <p id="case-factor-region-error" role="alert"></p>
+                <button id="case-factor-region-retry" type="button" hidden>重新读取地域</button>
                 <label for="case-factor-choice">参考因子版本</label>
                 <select id="case-factor-choice" required></select>
                 <p id="case-factor-source" class="muted"></p>

@@ -54,7 +54,7 @@ test('factor references match the exact accounting basis, geography and year', a
   }
 
   for (const query of [
-    {...product, dataYear: '2023'}, {...organization, dataYear: '2024'},
+    {...product, dataYear: '2022'}, {...organization, dataYear: '2024'},
     {...product, regionCode: 'CN-31'}, {...product, regionCode: 'US'}
   ]) {
     assert.deepEqual(await get(query), {status: 200, body: {items: []}});

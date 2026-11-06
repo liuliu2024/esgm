@@ -1,5 +1,5 @@
 import { evidenceStatusLabel, getContext, internalReportHref, renderCasePreparation, renderHistory, renderRevisionEvidence, reportItemDisplay, reportTotals, request, statusLabel } from '/shared.mjs';
-import { showFactorDecision } from '/factor-decision.mjs';
+import { bindFactorRegions, showFactorDecision } from '/factor-decision.mjs';
 
 const queue = document.querySelector('#queue');
 const queueStatus = document.querySelector('#queue-status');
@@ -36,6 +36,7 @@ const calculationList = document.querySelector('#revision-calculation-list');
 const factorForm = document.querySelector('#factor-reference-form');
 const factorBasis = document.querySelector('#factor-accounting-basis');
 const factorYear = document.querySelector('#factor-data-year');
+const factorRegion = document.querySelector('#factor-region');
 const factorSearch = document.querySelector('#factor-reference-search');
 const factorStatus = document.querySelector('#factor-reference-status');
 const factorError = document.querySelector('#factor-reference-error');
@@ -505,28 +506,36 @@ refreshButton.addEventListener('click', () => {
 nextPage.addEventListener('click', () => {
   if (!saving && cursor) void loadQueue(true);
 });
-factorForm.addEventListener('change', () => {
+let factorRequest;
+function clearFactorResults() {
+  factorRequest = undefined;
   factorStatus.textContent = factorError.textContent = '';
   factorResults.replaceChildren();
   factorResults.hidden = true;
-});
+}
+const factorRegions = bindFactorRegions({basis: factorBasis, year: factorYear, region: factorRegion, search: factorSearch,
+  status: document.querySelector('#factor-region-status'), error: document.querySelector('#factor-region-error'),
+  retry: document.querySelector('#factor-region-retry'), getOrgId: () => orgId, clearResults: clearFactorResults});
+
 factorForm.addEventListener('submit', async event => {
   event.preventDefault();
-  if (factorSearch.disabled) return;
-  factorSearch.disabled = factorBasis.disabled = factorYear.disabled = true;
+  if (factorSearch.disabled || !factorRegion.value) return;
+  clearFactorResults();
+  const current = Symbol();
+  factorRequest = current;
+  factorSearch.disabled = true;
   factorStatus.textContent = '正在查询因子…';
-  factorError.textContent = '';
-  factorResults.hidden = true;
-  factorResults.replaceChildren();
-  const query = new URLSearchParams({ orgId, accountingBasis: factorBasis.value, regionCode: 'CN', dataYear: factorYear.value });
+  const regionName = factorRegion.selectedOptions[0].textContent;
+  const query = new URLSearchParams({orgId, accountingBasis: factorBasis.value, regionCode: factorRegion.value, dataYear: factorYear.value});
   try {
     const { items } = await request(`/v1/professional/factor-references?${query}`);
+    if (factorRequest !== current) return;
     for (const item of items) {
       const row = document.createElement('li');
       const value = document.createElement('strong');
       const source = document.createElement('a');
       const note = document.createElement('p');
-      value.textContent = `${item.value} ${item.outputUnit}/${item.inputUnit} · 全国 · ${item.dataYear} 年 · 版本 ${item.version}`;
+      value.textContent = `${item.value} ${item.outputUnit}/${item.inputUnit} · ${regionName} · ${item.dataYear} 年 · 版本 ${item.version}`;
       source.href = item.sourceUrl;
       source.target = '_blank';
       source.rel = 'noopener noreferrer';
@@ -538,17 +547,18 @@ factorForm.addEventListener('submit', async event => {
       factorResults.append(row);
     }
     factorResults.hidden = items.length === 0;
-    factorStatus.textContent = items.length ? `找到 ${items.length} 条因子参考。` : '该口径和年份暂无全国因子。';
+    factorStatus.textContent = items.length ? `找到 ${items.length} 条因子参考。` : '该核算口径、年份和地域暂无因子参考。';
   } catch (error) {
+    if (factorRequest !== current) return;
     factorStatus.textContent = '';
     factorError.textContent = error.message;
   } finally {
-    factorSearch.disabled = factorBasis.disabled = factorYear.disabled = false;
+    if (factorRequest === current) factorSearch.disabled = !factorRegion.value;
   }
 });
 try {
   ({ orgId } = await getContext('professional'));
-  factorSearch.disabled = false;
+  void factorRegions.load();
   const page = await loadQueue();
   const linkedCase = new URLSearchParams(location.search).get('case');
   if (linkedCase) await loadCase(page?.find(item => item.id === linkedCase) ?? {id: linkedCase, nextAction: 'none'});

@@ -84,6 +84,19 @@ async function seedElectricitySample(demo) {
   const draftPath = `${path}/internal-report-drafts/${draft.draftId}`;
   await post('customer', `${draftPath}/submit-review`, {});
   await post('reviewer', `${draftPath}/review`, {decision: 'reviewed'});
+
+  const regionalTask = await post('customer', '', {
+    scenarioReleaseId, purpose: '合成样本｜上海组织购电',
+    scope: {subjectType: 'organization', subjectName: '样例组织 C', jurisdiction: '上海市',
+      reportingYear: '2023', recipient: '样例采购方'}
+  });
+  const regionalPath = `/${regionalTask.id}`;
+  const regionalBatch = await post('customer', `${regionalPath}/imports`, {
+    csv: 'period,source,quantity,unit\n2023-01,electricity,1000,kWh'
+  });
+  await post('customer', `${regionalPath}/imports/${regionalBatch.batchId}/commit`,
+    {previewRevision: regionalBatch.previewRevision});
+  await post('customer', `${regionalPath}/submit`, {revision: regionalTask.revision});
 }
 
 export async function startPreview(port = 0, { sample = false, renderDeliveryPdf } = {}) {

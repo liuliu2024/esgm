@@ -793,6 +793,19 @@ export function createIntakeService(database, quarantine) {
       });
     },
 
+    listFactorReferenceRegions(scope, orgId, {accountingBasis, dataYear}) {
+      return inWorkspace(scope, async tx => {
+        await requireRole(tx, scope, orgId, 'reviewer');
+        const {rows: items} = await tx.query(`
+          SELECT DISTINCT ON (region_code) region_code AS "regionCode", region_name AS "regionName"
+          FROM catalog.factor_reference_version
+          WHERE accounting_basis = $1 AND data_year = $2
+          ORDER BY region_code, version DESC, factor_id
+        `, [accountingBasis, dataYear]);
+        return {items};
+      });
+    },
+
     listFactorReferences(scope, orgId, {accountingBasis, regionCode, dataYear}) {
       return inWorkspace(scope, async tx => {
         await requireRole(tx, scope, orgId, 'reviewer');

@@ -114,15 +114,20 @@ function requiredText(value, label, maximum = 500) {
   return value.trim();
 }
 
-function factorFilters(accountingBasis, regionCode, dataYear) {
+function factorScope(accountingBasis, dataYear) {
   if (accountingBasis !== 'product_footprint' && accountingBasis !== 'organization_electricity_co2') {
     badRequest('请选择支持的核算口径。');
   }
+  if (!Number.isInteger(dataYear) || dataYear < 1 || dataYear > 9999) badRequest('数据年份必须为四位年份。');
+  return {accountingBasis, dataYear};
+}
+
+function factorFilters(accountingBasis, regionCode, dataYear) {
+  const scope = factorScope(accountingBasis, dataYear);
   if (typeof regionCode !== 'string' || !/^[A-Z]{2}(?:-[A-Z0-9]{1,3})?$/.test(regionCode)) {
     badRequest('请提供有效的地区编码。');
   }
-  if (!Number.isInteger(dataYear) || dataYear < 1 || dataYear > 9999) badRequest('数据年份必须为四位年份。');
-  return {accountingBasis, regionCode, dataYear};
+  return {...scope, regionCode};
 }
 
 function intakeScope(value) {
@@ -411,6 +416,13 @@ export function createCarbonApi(database, {quarantine, renderDeliveryPdf} = {}) 
             return {status: 200, body: await intake.resolveWorkspace(
               scope, view === 'professional' ? 'reviewer' : view, preferredOrgId?.toLowerCase() ?? null
             )};
+          }
+          if (path === '/v1/professional/factor-reference-regions') {
+            queryFields(query, ['orgId', 'accountingBasis', 'dataYear']);
+            const dataYear = query.get('dataYear');
+            if (!/^(?!0000)\d{4}$/.test(dataYear)) badRequest('数据年份必须为四位年份。');
+            return {status: 200, body: await intake.listFactorReferenceRegions(scope,
+              uuid(query.get('orgId'), '组织'), factorScope(query.get('accountingBasis'), Number(dataYear)))};
           }
           if (path === '/v1/professional/factor-references') {
             queryFields(query, ['orgId', 'accountingBasis', 'regionCode', 'dataYear']);

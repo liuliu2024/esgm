@@ -1,13 +1,21 @@
 # 官方因子参考目录
 
-首批支持专业人员核对全国电力因子的发布口径和数据年份。目录中的条目由迁移写入，服务只读。计算预览、冻结快照和演示稿沿用各自原有的合成模型。
+专业人员可按用途、年份和地域查询电力因子，再为提交版本记录选用决定。目录由迁移写入，服务只读。受控试算使用指定版本的因子，合成演示流程使用各自的测试系数。
 
 | 核算用途 | 数据年份 | 地域 | 数值和单位 | 发布原文 |
 | --- | --- | --- | --- | --- |
 | `product_footprint` 产品电力碳足迹 | 2024 | `CN` | 0.5777 kgCO2e/kWh | [2025 年第 19 号公告附件表 1](https://www.mee.gov.cn/xxgk2018/xxgk/xxgk01/202510/W020251024569470952545.pdf) |
+| `product_footprint` 产品电力碳足迹 | 2023 | `CN` | 0.6205 kgCO2e/kWh | [2025 年第 3 号公告附件 1 表 1](https://www.mee.gov.cn/xxgk2018/xxgk/xxgk01/202501/W020250123519612367413.pdf) |
 | `organization_electricity_co2` 电力消费二氧化碳排放 | 2023 | `CN` | 0.5306 kgCO2/kWh | [2025 年第 47 号公告附件表 1](https://www.mee.gov.cn/xxgk2018/xxgk/xxgk01/202512/W020251231726284332528.pdf) |
+| `organization_electricity_co2` 电力消费二氧化碳排放 | 2023 | 7 个区域及 30 个省级条目 | 按表取值，单位 kgCO2/kWh | [2025 年第 47 号公告附件表 2、表 3](https://www.mee.gov.cn/xxgk2018/xxgk/xxgk01/202512/W020251231726284332528.pdf) |
+
+省级条目使用 ISO 3166-2 省级代码，例如上海 `CN-SH`。电网区域使用应用内代码 `CN-GNC`、`CN-GNE`、`CN-GEC`、`CN-GCC`、`CN-GNW`、`CN-GSO`、`CN-GSW`，分别对应华北、东北、华东、华中、西北、南方和西南。选择应按适用方法及实际供电地域核实。查询缺项时显示空结果，保留人工核对出处的步骤。
 
 ## API
+
+`GET /v1/professional/factor-reference-regions?orgId=<UUID>&accountingBasis=organization_electricity_co2&dataYear=2023`
+
+返回该用途与数据年份实际存在的 `{items:[{regionCode,regionName}]}`，供专业端两处地域选择使用。沿用组织复核授权。未知组合返回空列表。
 
 `GET /v1/professional/factor-references?orgId=<UUID>&accountingBasis=product_footprint&regionCode=CN&dataYear=2024`
 
