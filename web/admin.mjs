@@ -63,7 +63,7 @@ next.addEventListener('click', () => {
   if (nextOffset !== null) void loadAudit(nextOffset);
 });
 try {
-  ({ orgId } = await getContext());
+  ({ orgId } = await getContext('admin'));
   await loadAudit(0);
 } catch (error) {
   alert.textContent = error.message;

@@ -272,6 +272,22 @@ export function createIntakeService(database, quarantine) {
   }
 
   return {
+    resolveWorkspace(scope, role, preferredOrgId) {
+      return inWorkspace(scope, async tx => {
+        const {rows} = await tx.query(`
+          SELECT org_id AS "orgId" FROM carbon.org_grant
+          WHERE tenant_id = $1 AND actor_id = $2 AND role = $3
+            AND ($4::uuid IS NULL OR org_id = $4)
+          LIMIT 2
+        `, [scope.tenantId, scope.actorId, role, preferredOrgId]);
+        if (rows.length === 0) throw accessDenied();
+        if (rows.length > 1) {
+          throw new CarbonError(409, 'WORKSPACE_SELECTION_REQUIRED', '请选择要进入的组织。');
+        }
+        return rows[0];
+      });
+    },
+
     previewActivity(scope, orgId, caseId, csv) {
       return inWorkspace(scope, async tx => {
         const task = await readVisibleCase(tx, scope, orgId, caseId, true);

@@ -433,7 +433,7 @@ factorForm.addEventListener('submit', async event => {
   }
 });
 try {
-  ({ orgId } = await getContext());
+  ({ orgId } = await getContext('professional'));
   factorSearch.disabled = false;
   const page = await loadQueue();
   const linkedCase = new URLSearchParams(location.search).get('case');

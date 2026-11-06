@@ -54,6 +54,10 @@ npm test
 
 入口为 `createCarbonApi(database).dispatch({ method, path, body }, context)`。返回 `{ status, body }`。认证接入层提供可信的 `context = { tenantId, actorId, requestId }`。租户与身份须由真实会话解析，组织和角色由服务查询。出错返回稳定的 `error.code` 和可读的 `error.message`。
 
+页面使用 `GET /v1/session/workspace?view=customer|professional|admin` 查当前组织。`view` 只选择工作台所需授权。服务按当前主体及租户的有效组织授权匹配。若同一视图有多个可访问组织，受信会话须提供选中的 `orgId`，否则返回 `WORKSPACE_SELECTION_REQUIRED`。业务接口继续逐请求核对当前授权。
+
+服务端可将 `createAuthenticatedHandler` 接到现有登录系统。由同源部署的会话解析器提供已经校验的 `tenantId`、`actorId` 和可选 `orgId`，同时配置公开站点的准确 `publicOrigin` 以接受浏览器写入。请求头、自报角色或浏览器传参都不能充当身份。目标环境需自行接入正式身份源和成员映射，按两租户、组织切换、撤权及真实扫描分别验收。
+
 | 角色 | 方法与路径 | 参数 |
 |---|---|---|
 | 客户 | `GET /v1/customer/scenarios` | `orgId`，返回当前租户发布的行业、任务用途、交付对象和场景版本。适用性统一待确认 |

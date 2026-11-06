@@ -75,6 +75,9 @@ test('three preview entries use the same intake and review workflow', async () =
       return response.json();
     };
     const { orgId, scenarioReleaseId } = await read('/demo/context');
+    for (const view of ['customer', 'professional', 'admin']) {
+      assert.deepEqual(await read(`/v1/session/workspace?view=${view}`), { orgId });
+    }
     const reportPage = await fetch(preview.origin + '/reports/internal-draft');
     assert.equal(reportPage.status, 200);
     assert.match(await reportPage.text(), /\/internal-report\.mjs/);

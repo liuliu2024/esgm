@@ -15,7 +15,7 @@ export async function request(path, body) {
   throw error;
 }
 
-export const getContext = () => request('/demo/context');
+export const getContext = (view = 'customer') => request(`/v1/session/workspace?${new URLSearchParams({view})}`);
 export const statusLabel = status => statuses[status] ?? status;
 export const internalReportHref = ({orgId, caseId, draftId, view}) =>
   `/reports/internal-draft?${new URLSearchParams({orgId, case: caseId, draft: draftId, view})}`;

@@ -331,6 +331,18 @@ export function createCarbonApi(database, {quarantine} = {}) {
         }
 
         if (method === 'GET') {
+          if (path === '/v1/session/workspace') {
+            queryFields(query, ['view']);
+            const view = query.get('view');
+            if (!['customer', 'professional', 'admin'].includes(view)) badRequest('请选择有效的工作空间视图。');
+            const preferredOrgId = context.orgId;
+            if (preferredOrgId != null && (typeof preferredOrgId !== 'string' || !uuidPattern.test(preferredOrgId))) {
+              fail(403, 'ACCESS_DENIED', '你没有该组织的操作权限。');
+            }
+            return {status: 200, body: await intake.resolveWorkspace(
+              scope, view === 'professional' ? 'reviewer' : view, preferredOrgId?.toLowerCase() ?? null
+            )};
+          }
           if (path === '/v1/professional/factor-references') {
             queryFields(query, ['orgId', 'accountingBasis', 'regionCode', 'dataYear']);
             const orgId = uuid(query.get('orgId'), '组织');

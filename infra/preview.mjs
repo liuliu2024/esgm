@@ -74,6 +74,13 @@ export async function startPreview(port = 0, { sample = false } = {}) {
         reply(200, { orgId: demo.orgId, scenarioReleaseId: demo.scenarioReleaseId });
         return;
       }
+      if (url.pathname === '/v1/session/workspace') {
+        const view = url.searchParams.get('view');
+        const role = view === 'professional' ? 'reviewer' : view === 'admin' ? 'admin' : 'customer';
+        const result = await demo.dispatch(role, request.method, url.pathname + url.search);
+        reply(result.status, result.body);
+        return;
+      }
       const role = /^\/v1\/(customer|professional|admin)\//.exec(url.pathname)?.[1];
       if (!role) {
         reply(404, { error: { code: 'NOT_FOUND', message: '未找到该页面。' } });
