@@ -77,6 +77,12 @@ async function seedElectricitySample(demo) {
     regionCode: 'CN', dataYear: 2024, methodReference: '样本试算｜2024 年全国电力碳足迹因子表 1',
     rationale: '用合成用电数据验证 2024 年全国电力碳足迹因子的计算和证据引用。'
   });
+  const draft = await post('customer', `${path}/revisions/${submitted.revision}/internal-report-drafts`, {
+    from: '2024-01', to: '2024-02'
+  });
+  const draftPath = `${path}/internal-report-drafts/${draft.draftId}`;
+  await post('customer', `${draftPath}/submit-review`, {});
+  await post('reviewer', `${draftPath}/review`, {decision: 'reviewed'});
 }
 
 export async function startPreview(port = 0, { sample = false } = {}) {

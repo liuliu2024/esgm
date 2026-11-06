@@ -87,6 +87,9 @@ npm test
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/internal-report-drafts/:draftId/review` | `orgId`，读取复核状态。专业端另返回该版冻结稿 |
 | 专业复核人 | `GET /v1/professional/cases/:id/internal-report-drafts` | `orgId`，可选 `limit, cursor`，查找已提交复核的版本 |
 | 专业复核人 | `POST /v1/professional/cases/:id/internal-report-drafts/:draftId/review` | `orgId, decision, reason?`，独立记录一次内部复核结论。退回需填写理由 |
+| 客户 | `POST /v1/customer/cases/:id/internal-report-drafts/:draftId/deliveries` | `orgId, recipient, purpose, includeMonthly, includeFactor`，冻结具名采购方交付件 |
+| 客户 | `GET /v1/customer/cases/:id/internal-report-drafts/:draftId/deliveries[/:deliveryId]` | `orgId`，列表返回记录，详情可读取有效版本的独立 HTML 及 SHA-256 |
+| 客户 | `POST /v1/customer/cases/:id/internal-report-drafts/:draftId/deliveries/:deliveryId/record` | `orgId, deliveryReference`，登记人工交付凭证 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/evidence` | `orgId`，返回有权查看的材料清单 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/revisions/:revision/evidence` | `orgId`，返回已提交修订所引用的材料和文件摘要 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/revisions/:revision/activities` | `orgId`，返回提交时锁定的活动输入和来源；旧提交明确标记缺少历史固定记录 |

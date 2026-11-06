@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { previewActivityCsv } from './activity-preview.mjs';
+import { renderDeliveryDocument } from './report-delivery.mjs';
 
 export class CarbonError extends Error {
   constructor(status, code, message) {
@@ -32,6 +33,10 @@ const draftFields = `id AS "draftId", created_at AS "createdAt", payload`;
 const reportReviewFields = `draft_id AS "draftId", case_id AS "caseId", status,
   submitted_by AS "submittedBy", submitted_at AS "submittedAt", reviewed_by AS "reviewedBy",
   reviewed_at AS "reviewedAt", reason`;
+const deliveryFields = `id AS "deliveryId", draft_id AS "draftId", recipient, purpose,
+  include_monthly AS "includeMonthly", include_factor AS "includeFactor",
+  created_at AS "createdAt", recorded_at AS "recordedAt", delivery_reference AS "deliveryReference",
+  document_sha256 AS "documentSha256"`;
 
 function accessDenied() {
   return new CarbonError(403, 'ACCESS_DENIED', '你没有该组织的操作权限。');
@@ -383,6 +388,23 @@ function reportReviewResponse(review) {
     formalReportEligible: false, externalDeliveryEligible: false};
 }
 
+function isCurrentSubmission(task, submissionRevision) {
+  return (task.status === 'submitted' && task.revision === submissionRevision)
+    || (task.status === 'approved' && task.revision - 1 === submissionRevision);
+}
+
+function deliverySourceConflict() {
+  return new CarbonError(409, 'REPORT_DELIVERY_SOURCE_CONFLICT', '交付需要当前有效提交的完整外购电力管理稿，并已通过独立复核。');
+}
+
+function deliveryResponse(delivery) {
+  if (!delivery) throw new CarbonError(404, 'REPORT_DELIVERY_NOT_FOUND', '未找到可访问的交付记录。');
+  const {createdAt, recordedAt} = delivery;
+  return {...delivery, createdAt: new Date(createdAt).toISOString(),
+    recordedAt: recordedAt === null ? null : new Date(recordedAt).toISOString(),
+    status: recordedAt === null ? 'prepared' : 'recorded'};
+}
+
 export function createIntakeService(database, quarantine) {
   function inWorkspace(scope, command) {
     return database.transaction(async tx => {
@@ -503,8 +525,7 @@ export function createIntakeService(database, quarantine) {
     createControlledInternalReportDraft(scope, orgId, caseId, submissionRevision, from, to) {
       return inWorkspace(scope, async tx => {
         const task = await readVisibleCase(tx, scope, orgId, caseId, true, true);
-        const currentSubmission = task.status === 'approved' ? task.revision - 1 : task.revision;
-        if (!['submitted', 'approved'].includes(task.status) || currentSubmission !== submissionRevision) {
+        if (!isCurrentSubmission(task, submissionRevision)) {
           throw new CarbonError(409, 'REPORT_DRAFT_REVISION_CONFLICT', '请选择当前有效的提交版本生成报告。');
         }
         const key = [scope.tenantId, orgId, caseId];
@@ -620,6 +641,97 @@ export function createIntakeService(database, quarantine) {
           throw new CarbonError(409, 'REPORT_REVIEW_CONFLICT', '该报告稿已有复核结论。');
         }
         return {review: reportReviewResponse(review)};
+      });
+    },
+
+    createReportDelivery(scope, orgId, caseId, draftId, input) {
+      return inWorkspace(scope, async tx => {
+        const task = await readVisibleCase(tx, scope, orgId, caseId, true, true);
+        const key = [scope.tenantId, orgId, caseId, draftId];
+        const draft = await readDraft(tx, key);
+        const review = await findReportReview(tx, key);
+        if (draft.mode !== 'controlled' || draft.report.summary.coverage.status !== 'complete'
+          || !isCurrentSubmission(task, draft.report.scope.submissionRevision) || review?.status !== 'reviewed') {
+          throw deliverySourceConflict();
+        }
+        const {recipient, purpose, includeMonthly, includeFactor} = input;
+        const deliveryKey = [...key, recipient, purpose, includeMonthly, includeFactor];
+        const deliveryId = randomUUID();
+        const documentHtml = renderDeliveryDocument(draft, deliveryId, input);
+        const digest = createHash('sha256').update(documentHtml, 'utf8').digest('hex');
+        const {rows: [created]} = await tx.query(`
+          INSERT INTO carbon.internal_report_delivery
+            (tenant_id, org_id, case_id, draft_id, recipient, purpose, include_monthly, include_factor,
+              id, created_by, request_id, document_html, document_sha256)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          ON CONFLICT (tenant_id, org_id, case_id, draft_id, recipient, purpose, include_monthly, include_factor) DO NOTHING
+          RETURNING ${deliveryFields}
+        `, [...deliveryKey, deliveryId, scope.actorId, scope.requestId, documentHtml, digest]);
+        if (created) return {status: 201, body: deliveryResponse(created)};
+        const {rows: [existing]} = await tx.query(`
+          SELECT ${deliveryFields} FROM carbon.internal_report_delivery
+          WHERE (tenant_id, org_id, case_id, draft_id, recipient, purpose, include_monthly, include_factor)
+              = ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, deliveryKey);
+        return {status: 200, body: deliveryResponse(existing)};
+      });
+    },
+
+    listReportDeliveries(scope, orgId, caseId, draftId) {
+      return inWorkspace(scope, async tx => {
+        await readVisibleCase(tx, scope, orgId, caseId, true);
+        const key = [scope.tenantId, orgId, caseId, draftId];
+        await readDraft(tx, key);
+        const {rows} = await tx.query(`
+          SELECT ${deliveryFields} FROM carbon.internal_report_delivery
+          WHERE (tenant_id, org_id, case_id, draft_id) = ($1, $2, $3, $4)
+          ORDER BY created_at DESC, id DESC
+        `, key);
+        return {items: rows.map(deliveryResponse)};
+      });
+    },
+
+    readReportDelivery(scope, orgId, caseId, draftId, deliveryId) {
+      return inWorkspace(scope, async tx => {
+        await readVisibleCase(tx, scope, orgId, caseId, true);
+        const key = [scope.tenantId, orgId, caseId, draftId];
+        const draft = await readDraft(tx, key);
+        const {rows: [delivery]} = await tx.query(`
+          SELECT ${deliveryFields}, CASE WHEN EXISTS (
+            SELECT 1 FROM carbon.case_intake
+            WHERE (tenant_id, org_id, id) = ($1, $2, $3)
+              AND ((status = 'submitted' AND revision = $6)
+                OR (status = 'approved' AND revision = $6 + 1))
+          ) THEN document_html END AS "documentHtml"
+          FROM carbon.internal_report_delivery
+          WHERE (tenant_id, org_id, case_id, draft_id, id) = ($1, $2, $3, $4, $5)
+        `, [...key, deliveryId, draft.report.scope.submissionRevision ?? null]);
+        return deliveryResponse(delivery);
+      });
+    },
+
+    recordReportDelivery(scope, orgId, caseId, draftId, deliveryId, deliveryReference) {
+      return inWorkspace(scope, async tx => {
+        const task = await readVisibleCase(tx, scope, orgId, caseId, true, true);
+        const key = [scope.tenantId, orgId, caseId, draftId];
+        const draft = await readDraft(tx, key);
+        const {rows: [stored]} = await tx.query(`
+          SELECT ${deliveryFields} FROM carbon.internal_report_delivery
+          WHERE (tenant_id, org_id, case_id, draft_id, id) = ($1, $2, $3, $4, $5)
+        `, [...key, deliveryId]);
+        const existing = deliveryResponse(stored);
+        if (!isCurrentSubmission(task, draft.report.scope.submissionRevision)) throw deliverySourceConflict();
+        if (existing.status === 'recorded') {
+          if (existing.deliveryReference === deliveryReference) return existing;
+          throw new CarbonError(409, 'REPORT_DELIVERY_ALREADY_RECORDED', '该交付件已记录凭证。');
+        }
+        const {rows: [recorded]} = await tx.query(`
+          UPDATE carbon.internal_report_delivery
+          SET recorded_by = $6, recorded_request_id = $7, delivery_reference = $8
+          WHERE (tenant_id, org_id, case_id, draft_id, id) = ($1, $2, $3, $4, $5) AND recorded_at IS NULL
+          RETURNING ${deliveryFields}
+        `, [...key, deliveryId, scope.actorId, scope.requestId, deliveryReference]);
+        return deliveryResponse(recorded);
       });
     },
 

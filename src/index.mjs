@@ -31,6 +31,9 @@ const routes = {
   internalReportDraft: /^\/v1\/customer\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)$/,
   submitInternalReportReview: /^\/v1\/customer\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)\/submit-review$/,
   internalReportReview: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)\/review$/,
+  reportDeliveries: /^\/v1\/customer\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)\/deliveries$/,
+  reportDelivery: /^\/v1\/customer\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)\/deliveries\/([^/]+)$/,
+  recordReportDelivery: /^\/v1\/customer\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)\/deliveries\/([^/]+)\/record$/,
   submit: /^\/v1\/customer\/cases\/([^/]+)\/submit$/,
   resubmit: /^\/v1\/customer\/cases\/([^/]+)\/resubmit$/,
   review: /^\/v1\/professional\/cases\/([^/]+)\/review$/,
@@ -206,6 +209,9 @@ function errorResponse(error) {
     || error.constraint === 'internal_report_review_transition' || error.constraint === 'internal_report_review_source_revision')) {
     return {status: 409, body: {error: {code: 'REPORT_REVIEW_CONFLICT', message: '任务或报告当前不能完成该复核操作，请核对任务状态和提交版本。'}}};
   }
+  if (error?.code === '23514' && error.constraint === 'internal_report_delivery_source_conflict') {
+    return {status: 409, body: {error: {code: 'REPORT_DELIVERY_SOURCE_CONFLICT', message: '交付需要当前有效提交的完整外购电力管理稿，并已通过独立复核。'}}};
+  }
   if ((error?.code === '23514' && error.constraint === 'case_factor_decision_submission_state')
     || (error?.code === '23505' && error.constraint === 'case_factor_decision_pkey')) {
     return {status: 409, body: {error: {code: 'FACTOR_DECISION_CONFLICT', message: '仅当前待复核提交可记录一次因子选择。'}}};
@@ -290,6 +296,26 @@ export function createCarbonApi(database, {quarantine} = {}) {
               ? requiredText(input.reason, '复核意见') : null;
             return {status: 200, body: await intake.decideInternalReportReview(scope,
               uuid(input.orgId, '组织'), uuid(reportReview[2], '任务'), uuid(reportReview[3], '稿件'), input.decision, reason)};
+          }
+          const recordReportDelivery = routes.recordReportDelivery.exec(path);
+          if (recordReportDelivery) {
+            const input = commandBody(request.body, ['orgId', 'deliveryReference']);
+            const [, caseId, draftId, deliveryId] = recordReportDelivery;
+            return {status: 200, body: await intake.recordReportDelivery(scope, uuid(input.orgId, '组织'),
+              uuid(caseId, '任务'), uuid(draftId, '稿件'), uuid(deliveryId, '交付件'),
+              requiredText(input.deliveryReference, '交付凭证', 300))};
+          }
+          const reportDeliveries = routes.reportDeliveries.exec(path);
+          if (reportDeliveries) {
+            const input = commandBody(request.body, ['orgId', 'recipient', 'purpose', 'includeMonthly', 'includeFactor']);
+            if (typeof input.includeMonthly !== 'boolean' || typeof input.includeFactor !== 'boolean') {
+              badRequest('请选择是否包含月度汇总和公开因子来源。');
+            }
+            const [, caseId, draftId] = reportDeliveries;
+            return await intake.createReportDelivery(scope, uuid(input.orgId, '组织'), uuid(caseId, '任务'), uuid(draftId, '稿件'), {
+              recipient: requiredText(input.recipient, '收件方', 120), purpose: requiredText(input.purpose, '交付用途', 300),
+              includeMonthly: input.includeMonthly, includeFactor: input.includeFactor
+            });
           }
           const internalReportDrafts = routes.internalReportDrafts.exec(path);
           if (internalReportDrafts?.[1] === 'customer') {
@@ -434,6 +460,20 @@ export function createCarbonApi(database, {quarantine} = {}) {
             queryFields(query, ['orgId']);
             return {status: 200, body: await intake.readInternalReportDraft(scope,
               uuid(query.get('orgId'), '组织'), uuid(internalReportDraft[1], '任务'), uuid(internalReportDraft[2], '稿件'))};
+          }
+          const reportDelivery = routes.reportDelivery.exec(path);
+          if (reportDelivery) {
+            queryFields(query, ['orgId']);
+            const [, caseId, draftId, deliveryId] = reportDelivery;
+            return {status: 200, body: await intake.readReportDelivery(scope, uuid(query.get('orgId'), '组织'),
+              uuid(caseId, '任务'), uuid(draftId, '稿件'), uuid(deliveryId, '交付件'))};
+          }
+          const reportDeliveries = routes.reportDeliveries.exec(path);
+          if (reportDeliveries) {
+            queryFields(query, ['orgId']);
+            const [, caseId, draftId] = reportDeliveries;
+            return {status: 200, body: await intake.listReportDeliveries(scope, uuid(query.get('orgId'), '组织'),
+              uuid(caseId, '任务'), uuid(draftId, '稿件'))};
           }
           const calculationPreview = routes.calculationPreview.exec(path);
           if (calculationPreview) {

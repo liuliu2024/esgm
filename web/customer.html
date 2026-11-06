@@ -26,6 +26,9 @@
     .report-review h5 { margin: 0; font-size: inherit; }
     .report-review button { justify-self: start; }
     .report-review-reason { overflow-wrap: anywhere; white-space: pre-wrap; }
+    .report-deliveries { border-top: 1px solid var(--line); padding-top: 8px; }
+    .report-deliveries input[type="checkbox"] { min-height: auto; }
+    .report-delivery-sha, .report-delivery-recorded { overflow-wrap: anywhere; }
     #feedback:not(:empty) { margin-block: 0 12px; }
     #submit { justify-self: start; }
     .scope-toggle { display: flex; align-items: center; gap: 8px; }
@@ -234,5 +237,35 @@
       </section>
     </div>
   </main>
+  <template id="report-delivery-template">
+    <details class="report-deliveries">
+      <summary>采购方交付件</summary>
+      <div class="stack">
+        <p class="muted">由企业自行交付。下载文件后，请登记实际交付凭证。</p>
+        <form class="report-delivery-create-form">
+          <label>具名收件方 <input name="recipient" maxlength="120" required></label>
+          <label>交付用途 <input name="purpose" maxlength="300" required></label>
+          <label class="scope-toggle"><input name="includeMonthly" type="checkbox">包含逐月明细</label>
+          <label class="scope-toggle"><input name="includeFactor" type="checkbox">包含公开因子来源</label>
+          <button class="report-delivery-create primary" type="submit">准备采购方交付件</button>
+        </form>
+        <p class="report-delivery-state" role="status"></p>
+        <p class="report-delivery-error" role="alert"></p>
+        <ul class="report-delivery-list task-list"></ul>
+        <section class="report-delivery-detail stack" aria-label="交付记录" hidden>
+          <h5 class="report-delivery-title" tabindex="-1"></h5>
+          <p class="report-delivery-meta"></p>
+          <p>SHA-256 <code class="report-delivery-sha"></code></p>
+          <div><button class="report-delivery-download" type="button">下载独立 HTML</button></div>
+          <p class="report-delivery-unavailable muted" hidden>此版本的文件已不可下载。</p>
+          <p class="report-delivery-recorded" hidden></p>
+          <form class="report-delivery-record-form" hidden>
+            <label>交付凭证 <input name="deliveryReference" maxlength="300" required></label>
+            <button class="report-delivery-record" type="submit">标记人工已交付</button>
+          </form>
+        </section>
+      </div>
+    </details>
+  </template>
 </body>
 </html>

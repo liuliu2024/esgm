@@ -201,6 +201,139 @@ function reportActivitySource(caseId, item) {
   return details;
 }
 
+function reportDeliveryPanel(draft, path) {
+  const panel = element('report-delivery-template').content.firstElementChild.cloneNode(true);
+  const find = selector => panel.querySelector(selector);
+  const create = find('.report-delivery-create-form');
+  const record = find('.report-delivery-record-form');
+  const list = find('.report-delivery-list');
+  const status = find('.report-delivery-state');
+  const error = find('.report-delivery-error');
+  const detail = find('.report-delivery-detail');
+  const title = find('.report-delivery-title');
+  const download = find('.report-delivery-download');
+  const orgId = context.orgId;
+  const query = new URLSearchParams({orgId});
+  const active = () => panel.isConnected && selected?.id === draft.caseId;
+  let working = false;
+  let loaded = false;
+  let current;
+
+  const revision = selected.status === 'approved' ? selected.revision - 1 : selected.revision;
+  create.hidden = !['submitted', 'approved'].includes(selected.status) || revision !== draft.report.scope.submissionRevision;
+  create.elements.recipient.value = draft.report.scope.declaredScope?.recipient ?? '';
+
+  function display(delivery, downloadable) {
+    if (current?.deliveryId !== delivery.deliveryId || delivery.status === 'recorded') record.reset();
+    current = delivery;
+    title.textContent = `${delivery.recipient} · ${delivery.status === 'recorded' ? '人工已交付' : '待人工交付'}`;
+    find('.report-delivery-meta').textContent = delivery.purpose;
+    find('.report-delivery-sha').textContent = delivery.documentSha256;
+    download.hidden = !downloadable;
+    find('.report-delivery-unavailable').hidden = downloadable;
+    const recorded = find('.report-delivery-recorded');
+    recorded.textContent = delivery.deliveryReference ? `交付凭证 · ${delivery.deliveryReference}` : '';
+    recorded.hidden = !delivery.deliveryReference;
+    record.hidden = delivery.status !== 'prepared' || !downloadable;
+    detail.hidden = false;
+  }
+
+  async function readDelivery(id) {
+    const {documentHtml, ...delivery} = await request(`${path}/${id}?${query}`);
+    if (active()) display(delivery, typeof documentHtml === 'string');
+    return documentHtml;
+  }
+
+  async function loadList() {
+    const {items} = await request(`${path}?${query}`);
+    if (!active()) return;
+    list.replaceChildren(...items.map(delivery => {
+      const row = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.deliveryId = delivery.deliveryId;
+      button.textContent = `${delivery.recipient} · ${delivery.status === 'recorded' ? '人工已交付' : '待人工交付'} · ${new Date(delivery.createdAt).toLocaleString('zh-CN')}`;
+      row.append(button);
+      return row;
+    }));
+    loaded = true;
+    return items.length ? '' : '暂无交付件。';
+  }
+
+  async function run(message, operation) {
+    if (working || busy || creating || !active()) return;
+    working = true;
+    panel.setAttribute('aria-busy', 'true');
+    status.textContent = message;
+    error.textContent = '';
+    try {
+      const result = await operation();
+      if (active()) status.textContent = result ?? '';
+    } catch (failure) {
+      if (active()) {
+        status.textContent = '';
+        error.textContent = failure.message;
+      }
+    } finally {
+      working = false;
+      panel.removeAttribute('aria-busy');
+    }
+  }
+
+  panel.addEventListener('toggle', () => {
+    if (panel.open && !loaded) void run('正在读取交付记录…', loadList);
+  });
+  list.addEventListener('click', event => {
+    const button = event.target.closest('button[data-delivery-id]');
+    if (!button) return;
+    void run('正在读取交付件…', async () => {
+      detail.hidden = true;
+      await readDelivery(button.dataset.deliveryId);
+      if (active()) title.focus();
+    });
+  });
+  create.addEventListener('submit', event => {
+    event.preventDefault();
+    void run('正在准备交付件…', async () => {
+      const {recipient, purpose, includeMonthly, includeFactor} = create.elements;
+      const delivery = await request(path, {orgId, recipient: recipient.value.trim(), purpose: purpose.value.trim(),
+        includeMonthly: includeMonthly.checked, includeFactor: includeFactor.checked});
+      if (!active()) return;
+      await Promise.all([loadList(), readDelivery(delivery.deliveryId)]);
+      if (active()) title.focus();
+      return '交付件已准备，可下载后由企业自行交付。';
+    });
+  });
+  download.addEventListener('click', () => {
+    void run('正在读取文件…', async () => {
+      const deliveryId = current.deliveryId;
+      const documentHtml = await readDelivery(deliveryId);
+      if (!active()) return;
+      if (typeof documentHtml !== 'string') return '此版本的文件已不可下载。';
+      const url = URL.createObjectURL(new Blob([documentHtml], {type: 'text/html;charset=utf-8'}));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `碳有据-采购方交付件-${deliveryId}.html`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return '已请求下载。实际交付后请登记凭证。';
+    });
+  });
+  record.addEventListener('submit', event => {
+    event.preventDefault();
+    void run('正在保存交付凭证…', async () => {
+      const delivery = await request(`${path}/${current.deliveryId}/record`,
+        {orgId, deliveryReference: record.elements.deliveryReference.value.trim()});
+      if (!active()) return;
+      display(delivery, !download.hidden);
+      await loadList();
+      if (active()) title.focus();
+      return '已记录人工交付。';
+    });
+  });
+  return panel;
+}
+
 function reportReviewPanel(draft) {
   const panel = document.createElement('section');
   panel.className = 'report-review stack';
@@ -232,6 +365,7 @@ function reportReviewPanel(draft) {
   const canSubmit = () => selected?.status === 'submitted' || selected?.status === 'approved';
   let posting = false;
   let submitted = false;
+  let deliveryPanel;
 
   function showReview(review) {
     submitted = true;
@@ -240,6 +374,10 @@ function reportReviewPanel(draft) {
     reason.hidden = !review.reason;
     error.textContent = '';
     button.hidden = true;
+    if (!deliveryPanel && review.status === 'reviewed' && controlled && draft.report.summary.coverage.status === 'complete') {
+      deliveryPanel = reportDeliveryPanel(draft, `${path}/deliveries`);
+      panel.append(deliveryPanel);
+    }
   }
 
   panel.addEventListener('report-review-submitted', event => showReview(event.detail));

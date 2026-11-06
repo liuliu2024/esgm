@@ -40,7 +40,7 @@ test('intake scope migration preserves legacy tasks and only the creator can set
     VALUES ($1, $2, $3, $4, $5, 'Legacy')`, [tenant, org, release, customer, legacyId]));
   assert.deepEqual(await migrate(db.admin), ['010_intake_scope.sql', '011_internal_report_review.sql',
     '012_factor_reference.sql', '013_factor_decision.sql', '014_submission_activity.sql',
-    '015_controlled_internal_report.sql']);
+    '015_controlled_internal_report.sql', '016_report_delivery.sql']);
   assert.deepEqual(await migrate(db.admin), []);
   const lookup = id => tx => tx.query('SELECT intake_scope FROM carbon.case_intake WHERE id = $1', [id]);
   assert.deepEqual((await act(lookup(legacyId))).rows, [{intake_scope: null}]);
