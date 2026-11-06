@@ -14,6 +14,7 @@ const specialistIntake = [
       } },
     references: [{ code: 'gbt-24067-2024', title: '产品碳足迹量化要求和指南发布信息', publisher: '生态环境部',
       sourceUrl: 'https://www.mee.gov.cn/xxgk/hjyw/202409/t20240910_1085619.shtml',
+      publicationStatus: 'effective',
       scopeNote: '用于了解产品碳足迹通则，具体产品规则和买方要求仍需核对。' }]
   },
   {
@@ -58,7 +59,18 @@ const specialistIntake = [
       purpose: '梳理披露期间、适用框架、重要议题及指标证据', recipient: '企业可持续披露团队' },
     references: [{ code: 'sustainability-disclosure-basic', title: '企业可持续披露准则——基本准则（试行）',
       publisher: '财政部等十部门', sourceUrl: 'https://kjs.mof.gov.cn/zhengcefabu/202412/t20241216_3949745.htm',
+      publicationStatus: 'pilot',
       scopeNote: '用于整理可持续披露的一般内容。具体适用框架和披露义务按主体、年度及适用规则另行核对。' }]
+  },
+  {
+    code: 'public-institution-inventory-prep',
+    catalog: {industryCode: 'public-institutions', industryName: '公共机构', title: '公共机构盘查资料准备',
+      purpose: '梳理办公设施边界、统计期间与用能资料', recipient: '公共机构内部管理团队',
+      preparation: {
+        materials: ['机构及纳入范围的办公设施清单', '电力、燃料与其他用能凭证', '统计期间、边界说明及缺失记录'],
+        reportRequirements: ['逐项说明设施与能源的统计范围', '区分账单来源、估算和缺失项', '由专业人员核对适用的盘查方法']
+      }},
+    references: []
   }
 ];
 

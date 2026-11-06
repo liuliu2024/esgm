@@ -23,6 +23,7 @@ const pages = {
   '/customer.mjs': 'customer.mjs',
   '/professional.mjs': 'professional.mjs',
   '/factor-decision.mjs': 'factor-decision.mjs',
+  '/rule-assessment.mjs': 'rule-assessment.mjs',
   '/admin.mjs': 'admin.mjs'
 };
 const mediaTypes = { html: 'text/html', css: 'text/css', mjs: 'text/javascript' };
@@ -97,6 +98,15 @@ async function seedElectricitySample(demo) {
   await post('customer', `${regionalPath}/imports/${regionalBatch.batchId}/commit`,
     {previewRevision: regionalBatch.previewRevision});
   await post('customer', `${regionalPath}/submit`, {revision: regionalTask.revision});
+
+  const {body: {items}} = await demo.dispatch('customer', 'GET', `/v1/customer/scenarios?orgId=${orgId}`);
+  const productScenario = items.find(item => item.code === 'product-footprint-prep');
+  const ruleTask = await post('customer', '', {
+    scenarioReleaseId: productScenario.id, purpose: '合成样本｜产品规则判断',
+    scope: {subjectType: 'product', subjectName: '样例设备 D', jurisdiction: '上海市',
+      reportingYear: '2025', recipient: '样例采购方'}
+  });
+  await post('customer', `/${ruleTask.id}/submit`, {revision: ruleTask.revision});
 }
 
 export async function startPreview(port = 0, { sample = false, renderDeliveryPdf } = {}) {

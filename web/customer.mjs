@@ -1,4 +1,5 @@
 import { evidenceStatusLabel, getContext, internalReportHref, renderCasePreparation, renderHistory, renderRevisionEvidence, reportItemDisplay, reportTotals, request, statusLabel } from './shared.mjs';
+import { bindRuleAssessment } from './rule-assessment.mjs';
 
 const element = id => document.getElementById(id);
 const list = element('cases');
@@ -26,6 +27,7 @@ const evidenceItems = element('evidence-items');
 const evidenceForm = element('register-evidence');
 const evidenceError = element('evidence-error');
 const revisionEvidence = element('case-revision-evidence');
+const showRuleAssessment = bindRuleAssessment(element('case-rule-assessment'));
 const revisionEvidenceState = element('case-revision-evidence-state');
 const revisionEvidenceItems = element('case-revision-evidence-items');
 const base = '/v1/customer/cases';
@@ -674,7 +676,12 @@ function renderDetail() {
   create.hidden = !creating;
   detail.hidden = creating || !selected;
   element('placeholder').hidden = !detail.hidden || creating;
-  if (detail.hidden) return;
+  if (detail.hidden) {
+    showRuleAssessment();
+    return;
+  }
+  showRuleAssessment({base: `${base}/${encodeURIComponent(selected.id)}`, orgId: context.orgId,
+    taskRevision: selected.revision});
   if (revisionEvidence.dataset.caseId !== selected.id || revisionEvidence.dataset.revision !== String(selected.revision)) {
     revisionEvidence.open = false;
     revisionEvidence.dataset.caseId = selected.id;

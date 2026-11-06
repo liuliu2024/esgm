@@ -44,6 +44,16 @@
       <p id="factor-reference-error" role="alert"></p>
       <ul id="factor-reference-results" class="history-list" hidden></ul>
     </details>
+    <details id="rule-proposal-review" class="panel">
+      <summary>规则草案审批</summary>
+      <div class="stack">
+        <p class="muted">审批限本组织的独立专业人员。发布由发布岗执行。</p>
+        <p id="rule-proposal-review-status" role="status"></p>
+        <p id="rule-proposal-review-error" role="alert"></p>
+        <ul id="rule-proposal-review-list" class="history-list" hidden></ul>
+        <button type="button" id="rule-proposal-review-refresh">刷新草案</button>
+      </div>
+    </details>
     <div class="layout">
       <section class="panel" aria-labelledby="queue-heading">
         <div class="heading">
@@ -105,6 +115,28 @@
             <p id="revision-evidence-status" role="status"></p>
             <p id="revision-evidence-error" role="alert"></p>
             <ul id="revision-evidence-list" class="history-list" hidden></ul>
+            <details id="case-rule-assessment" hidden>
+              <summary>适用规则</summary>
+              <p data-rule-state class="muted" role="status"></p>
+              <p data-rule-error role="alert"></p>
+              <div data-rule-content class="stack" hidden></div>
+              <form data-rule-form class="stack" hidden>
+                <p class="muted">此记录仅用于本次内部复核。</p>
+                <label>复核状态
+                  <select name="status" required>
+                    <option value="needs_review">待核实</option>
+                    <option value="confirmed">确认适用</option>
+                  </select>
+                </label>
+                <label data-rule-choice hidden>参考规则
+                  <select name="referenceCode" disabled></select>
+                </label>
+                <label>复核理由
+                  <textarea name="rationale" required maxlength="500"></textarea>
+                </label>
+                <button type="submit">保存规则记录</button>
+              </form>
+            </details>
             <details id="revision-activity">
               <summary>该版本的活动数据</summary>
               <p id="revision-activity-status" role="status"></p>

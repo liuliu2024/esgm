@@ -21,6 +21,7 @@ const evidenceFields = `evidence.id, evidence.case_id AS "caseId", evidence.org_
   evidence.source_description AS "sourceDescription", evidence.created_at AS "createdAt"`;
 const catalogFields = ['industryCode', 'industryName', 'title', 'purpose', 'recipient'];
 const referenceFields = ['code', 'title', 'publisher', 'sourceUrl', 'scopeNote'];
+const rulePublicationStatuses = new Set(['effective', 'pilot', 'draft', 'superseded', 'expired']);
 const factorReferenceFields = `factor_id AS "factorId", version, accounting_basis AS "accountingBasis", region_code AS "regionCode",
   data_year AS "dataYear", value::text AS value, input_unit AS "inputUnit", output_unit AS "outputUnit",
   source_title AS "sourceTitle", source_url AS "sourceUrl", source_locator AS "sourceLocator", usage_note AS "usageNote"`;
@@ -56,6 +57,36 @@ function catalogPreparation(catalog) {
       lines.every(line => typeof line === 'string' && line.trim()))) {
     return {materials, reportRequirements};
   }
+}
+
+function scenarioReferenceItems(references, includeStatus = false) {
+  const items = [];
+  if (!Array.isArray(references)) return items;
+  for (const entry of references) {
+    if (!referenceFields.every(field => typeof entry?.[field] === 'string' && entry[field].trim())) continue;
+    const url = URL.parse(entry.sourceUrl);
+    if (url?.protocol !== 'https:' || url.username || url.password) continue;
+    const item = {...Object.fromEntries(referenceFields.map(field => [field, entry[field]])), sourceUrl: url.href};
+    if (includeStatus) {
+      item.publicationStatus = rulePublicationStatuses.has(entry.publicationStatus) ? entry.publicationStatus : 'unclassified';
+    }
+    items.push(item);
+  }
+  return items;
+}
+
+function compareRuleReferences(existing, references) {
+  const original = new Map(scenarioReferenceItems(existing, true).map(item => [item.code, item]));
+  const proposed = new Map(references.map(item => [item.code, item]));
+  const changes = [];
+  for (const code of new Set([...original.keys(), ...proposed.keys()])) {
+    const before = original.get(code) ?? null;
+    const after = proposed.get(code) ?? null;
+    if (!before || !after || Object.keys(before).some(field => before[field] !== after[field])) {
+      changes.push({code, type: before ? (after ? 'changed' : 'removed') : 'added', before, after});
+    }
+  }
+  return changes;
 }
 
 function withScenarioPreparation(task, release) {
@@ -403,6 +434,79 @@ function deliveryResponse(delivery) {
   return {...delivery, createdAt: new Date(createdAt).toISOString(),
     recordedAt: recordedAt === null ? null : new Date(recordedAt).toISOString(),
     status: recordedAt === null ? 'prepared' : 'recorded'};
+}
+
+async function readRuleAssessment(tx, scope, task, revision) {
+  const {id, orgId, scenarioReleaseId, purpose, scope: declared} = task;
+  const key = [scope.tenantId, orgId, id];
+  const {rows: [release]} = await tx.query(`
+    SELECT base.version, base.manifest->'catalog'->>'industryName' AS "industryName",
+      base.manifest->'references' AS references,
+      latest.id AS "newerReleaseId", latest.version AS "newerVersion",
+      (SELECT rule_recalculation_of FROM carbon.case_intake
+        WHERE (tenant_id, org_id, id) = ($1, $3, $4)) AS "recalculationOf"
+    FROM carbon.scenario_release AS base
+    LEFT JOIN LATERAL (
+      SELECT id, version FROM carbon.scenario_release
+      WHERE tenant_id = base.tenant_id AND code = base.code AND version > base.version
+        AND (org_id IS NULL OR org_id = $3)
+      ORDER BY version DESC, (org_id IS NOT NULL) DESC LIMIT 1
+    ) AS latest ON true
+    WHERE base.tenant_id = $1 AND base.id = $2
+  `, [scope.tenantId, scenarioReleaseId, orgId, id]);
+  const {rows: [submission]} = await tx.query(`
+    SELECT submission.revision, decision.status, decision.reference_code AS "referenceCode", decision.rationale,
+      decision.decided_by AS "decidedBy", decision.decided_at AS "decidedAt"
+    FROM carbon.case_submission AS submission
+    LEFT JOIN carbon.case_rule_decision AS decision
+      ON (decision.tenant_id, decision.org_id, decision.case_id, decision.submission_revision)
+       = (submission.tenant_id, submission.org_id, submission.case_id, submission.revision)
+    WHERE (submission.tenant_id, submission.org_id, submission.case_id) = ($1, $2, $3)
+      AND ($4::integer IS NULL OR submission.revision = $4)
+    ORDER BY submission.revision DESC LIMIT 1
+  `, [...key, revision]);
+  if (revision !== null && !submission) {
+    throw new CarbonError(404, 'REVISION_NOT_FOUND', '未找到该任务的提交版本。');
+  }
+  const candidates = scenarioReferenceItems(release.references, true);
+  const {revision: submissionRevision = null, ...stored} = submission ?? {};
+  const decision = stored.status ? {...stored, decidedAt: new Date(stored.decidedAt).toISOString()} : null;
+  const gaps = [];
+  if (!declared) gaps.push('缺少申报主体、地区或报告年度。');
+  if (!release.industryName) gaps.push('该场景版本未配置行业。');
+  if (!candidates.some(item => item.publicationStatus === 'effective' || item.publicationStatus === 'pilot')) {
+    gaps.push('该场景暂无标记为正式或试行的候选依据。');
+  }
+  if (!decision) gaps.push('适用性待专业人员结合实际范围和用途确认。');
+  const recalculation = task.createdBy === scope.actorId && ['submitted', 'approved'].includes(task.status)
+    && release.newerReleaseId ? {scenarioReleaseId: release.newerReleaseId, scenarioVersion: release.newerVersion} : null;
+  return {scenarioReleaseId, scenarioVersion: release.version, submissionRevision, candidates, gaps, decision,
+    status: decision?.status ?? 'needs_review', recalculation, recalculationOf: release.recalculationOf,
+    context: {industryName: release.industryName,
+      subjectType: declared?.subjectType ?? null, jurisdiction: declared?.jurisdiction ?? null,
+      reportingYear: declared?.reportingYear ?? null, purpose}};
+}
+
+async function readRuleProposals(tx, scope, orgId, reviewer, proposalId = null) {
+  const {rows} = await tx.query(`
+    SELECT p.id AS "proposalId", p.base_release_id AS "scenarioReleaseId", base.version AS "scenarioVersion",
+      coalesce(base.manifest->'catalog'->>'title', base.code) AS title,
+      CASE WHEN pub.release_id IS NOT NULL THEN 'published' ELSE p.status END AS status,
+      p.created_by AS "createdBy", p.created_at AS "createdAt", p.review_note AS "reviewNote",
+      pub.release_id AS "publishedReleaseId", base.manifest->'references' AS existing,
+      p.references_payload AS proposed
+    FROM carbon.scenario_rule_proposal AS p
+    JOIN carbon.scenario_release AS base ON (base.tenant_id, base.id) = (p.tenant_id, p.base_release_id)
+    LEFT JOIN carbon.scenario_rule_publication AS pub
+      ON (pub.tenant_id, pub.org_id, pub.proposal_id) = (p.tenant_id, p.org_id, p.id)
+    WHERE (p.tenant_id, p.org_id) = ($1, $2) AND ($3::uuid IS NULL OR p.id = $3)
+    ORDER BY p.created_at DESC, p.id DESC LIMIT 50
+  `, [scope.tenantId, orgId, proposalId]);
+  return rows.map(({createdBy, existing, proposed, ...item}) => ({
+    ...item, createdAt: new Date(item.createdAt).toISOString(),
+    ...(reviewer && {canReview: item.status === 'submitted' && createdBy !== scope.actorId,
+      changes: compareRuleReferences(existing, proposed)})
+  }));
 }
 
 export function createIntakeService(database, quarantine) {
@@ -868,19 +972,168 @@ export function createIntakeService(database, quarantine) {
         await requireRole(tx, scope, orgId, 'customer');
         const {rows: [release]} = await tx.query(`
           SELECT manifest->'references' AS references FROM carbon.scenario_release
-          WHERE tenant_id = $1 AND id = $2
-        `, [scope.tenantId, scenarioReleaseId]);
+          WHERE tenant_id = $1 AND id = $2 AND (org_id IS NULL OR org_id = $3)
+        `, [scope.tenantId, scenarioReleaseId, orgId]);
         if (!release) throw new CarbonError(404, 'SCENARIO_NOT_FOUND', '未找到可访问的场景版本。');
-        const items = [];
-        if (Array.isArray(release.references)) {
-          for (const entry of release.references) {
-            if (!referenceFields.every(field => typeof entry?.[field] === 'string' && entry[field].trim())) continue;
-            const url = URL.parse(entry.sourceUrl);
-            if (url?.protocol !== 'https:' || url.username || url.password) continue;
-            items.push({...Object.fromEntries(referenceFields.map(field => [field, entry[field]])), sourceUrl: url.href});
+        return {scenarioReleaseId, ruleStatus: 'needs_review', items: scenarioReferenceItems(release.references)};
+      });
+    },
+
+    readRuleAssessment(scope, orgId, caseId, revision, customerOnly) {
+      return inWorkspace(scope, async tx => {
+        const task = await readVisibleCase(tx, scope, orgId, caseId, customerOnly);
+        return readRuleAssessment(tx, scope, task, revision);
+      });
+    },
+
+    recordRuleAssessment(scope, orgId, caseId, revision, {status, referenceCode, rationale}) {
+      return inWorkspace(scope, async tx => {
+        const task = await readVisibleCase(tx, scope, orgId, caseId, false);
+        if (task.createdBy === scope.actorId) {
+          throw new CarbonError(403, 'SELF_REVIEW_FORBIDDEN', '发起人不能确认自己的任务规则。');
+        }
+        if (task.status !== 'submitted' || task.revision !== revision) {
+          throw new CarbonError(409, 'RULE_ASSESSMENT_CONFLICT', '仅当前待复核提交可记录一次规则判断。');
+        }
+        if (status === 'confirmed') {
+          const current = await readRuleAssessment(tx, scope, task, revision);
+          if (!task.scope || !current.candidates.some(item => item.code === referenceCode
+            && (item.publicationStatus === 'effective' || item.publicationStatus === 'pilot'))) {
+            throw new CarbonError(409, 'RULE_REFERENCE_UNAVAILABLE', '请先核对申报范围及可确认的候选依据。');
           }
         }
-        return {scenarioReleaseId, ruleStatus: 'needs_review', items};
+        await tx.query(`
+          INSERT INTO carbon.case_rule_decision
+            (tenant_id, org_id, case_id, submission_revision, status, reference_code, rationale, decided_by, request_id)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `, [scope.tenantId, orgId, caseId, revision, status, referenceCode, rationale, scope.actorId, scope.requestId]);
+        return readRuleAssessment(tx, scope, task, revision);
+      });
+    },
+
+    previewRuleImpact(scope, orgId, scenarioReleaseId, references) {
+      return inWorkspace(scope, async tx => {
+        await requireRole(tx, scope, orgId, 'admin');
+        const {rows: [release]} = await tx.query(`
+          SELECT version, manifest->'references' AS references FROM carbon.scenario_release
+          WHERE tenant_id = $1 AND id = $2 AND (org_id IS NULL OR org_id = $3)
+        `, [scope.tenantId, scenarioReleaseId, orgId]);
+        if (!release) throw new CarbonError(404, 'SCENARIO_NOT_FOUND', '未找到可访问的场景版本。');
+        const changes = compareRuleReferences(release.references, references);
+        const {rows: taskCounts} = changes.length ? await tx.query(`
+          SELECT status, count(*)::integer AS count FROM carbon.case_intake
+          WHERE tenant_id = $1 AND org_id = $2 AND scenario_release_id = $3
+          GROUP BY status ORDER BY status
+        `, [scope.tenantId, orgId, scenarioReleaseId]) : {rows: []};
+        const {rows: [dependencies]} = changes.length ? await tx.query(`
+          SELECT factor_count AS "factorCount", model_count AS "modelCount", report_count AS "reportCount"
+          FROM carbon.rule_impact_dependencies($1, $2)
+        `, [orgId, scenarioReleaseId]) : {rows: [{factorCount: 0, modelCount: 0, reportCount: 0}]};
+        return {scenarioReleaseId, scenarioVersion: release.version, changes, taskCounts, dependencies};
+      });
+    },
+
+    listRuleCatalog(scope, orgId) {
+      return inWorkspace(scope, async tx => {
+        await requireRole(tx, scope, orgId, 'admin');
+        const {rows} = await tx.query(`
+          SELECT DISTINCT ON (code) id AS "scenarioReleaseId", version AS "scenarioVersion", code,
+            manifest->'catalog'->>'title' AS title, manifest->'references' AS references
+          FROM carbon.scenario_release WHERE tenant_id = $1 AND (org_id IS NULL OR org_id = $2)
+          ORDER BY code, version DESC, (org_id IS NOT NULL) DESC
+        `, [scope.tenantId, orgId]);
+        return {items: rows.map(({references, title, ...release}) => ({
+          ...release, title: title ?? release.code, references: scenarioReferenceItems(references, true)
+        }))};
+      });
+    },
+
+    listRuleProposals(scope, orgId, reviewer) {
+      return inWorkspace(scope, async tx => {
+        await requireRole(tx, scope, orgId, reviewer ? 'reviewer' : 'admin');
+        return {items: await readRuleProposals(tx, scope, orgId, reviewer)};
+      });
+    },
+
+    submitRuleProposal(scope, orgId, scenarioReleaseId, references) {
+      return inWorkspace(scope, async tx => {
+        await requireRole(tx, scope, orgId, 'admin');
+        const {rows: [release]} = await tx.query(`
+          SELECT base.manifest->'references' AS references,
+            base.id = (SELECT newer.id FROM carbon.scenario_release AS newer
+              WHERE newer.tenant_id = base.tenant_id AND newer.code = base.code
+                AND (newer.org_id IS NULL OR newer.org_id = $3)
+              ORDER BY newer.version DESC, (newer.org_id IS NOT NULL) DESC LIMIT 1) AS latest
+          FROM carbon.scenario_release AS base
+          WHERE base.tenant_id = $1 AND base.id = $2 AND (base.org_id IS NULL OR base.org_id = $3)
+        `, [scope.tenantId, scenarioReleaseId, orgId]);
+        if (!release) throw new CarbonError(404, 'SCENARIO_NOT_FOUND', '未找到可访问的场景版本。');
+        if (!release.latest || !compareRuleReferences(release.references, references).length) {
+          throw new CarbonError(409, 'RULE_PROPOSAL_CONFLICT', '请选择当前场景版本并至少修改一项候选依据。');
+        }
+        const proposalId = randomUUID();
+        await tx.query(`
+          INSERT INTO carbon.scenario_rule_proposal
+            (tenant_id, org_id, id, base_release_id, references_payload, created_by, request_id)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `, [scope.tenantId, orgId, proposalId, scenarioReleaseId, JSON.stringify(references), scope.actorId, scope.requestId]);
+        const [proposal] = await readRuleProposals(tx, scope, orgId, false, proposalId);
+        return proposal;
+      });
+    },
+
+    reviewRuleProposal(scope, orgId, proposalId, decision, reason) {
+      return inWorkspace(scope, async tx => {
+        await requireRole(tx, scope, orgId, 'reviewer');
+        const key = [scope.tenantId, orgId, proposalId];
+        const {rows: [stored]} = await tx.query(`
+          SELECT created_by AS "createdBy" FROM carbon.scenario_rule_proposal
+          WHERE (tenant_id, org_id, id) = ($1, $2, $3)
+        `, key);
+        if (!stored) throw new CarbonError(404, 'RULE_PROPOSAL_NOT_FOUND', '未找到可访问的规则草案。');
+        if (stored.createdBy === scope.actorId) {
+          throw new CarbonError(403, 'SELF_REVIEW_FORBIDDEN', '提交人不能审批自己的规则草案。');
+        }
+        const {rows} = await tx.query(`
+          UPDATE carbon.scenario_rule_proposal
+          SET status = $4, review_note = $5, reviewed_by = $6, review_request_id = $7
+          WHERE (tenant_id, org_id, id) = ($1, $2, $3) AND status = 'submitted'
+          RETURNING id
+        `, [...key, decision, reason, scope.actorId, scope.requestId]);
+        if (!rows.length) throw new CarbonError(409, 'RULE_PROPOSAL_CONFLICT', '该规则草案已有审批结论。');
+        const [proposal] = await readRuleProposals(tx, scope, orgId, true, proposalId);
+        return proposal;
+      });
+    },
+
+    createRuleRecalculation(scope, orgId, caseId, scenarioReleaseId) {
+      return inWorkspace(scope, async tx => {
+        const task = await readVisibleCase(tx, scope, orgId, caseId, true, true);
+        const {rows: [latest]} = await tx.query(`
+          SELECT newer.id FROM carbon.scenario_release AS original
+          JOIN carbon.scenario_release AS newer
+            ON newer.tenant_id = original.tenant_id AND newer.code = original.code AND newer.version > original.version
+          WHERE original.tenant_id = $1 AND original.id = $2 AND (newer.org_id IS NULL OR newer.org_id = $3)
+          ORDER BY newer.version DESC, (newer.org_id IS NOT NULL) DESC LIMIT 1
+        `, [scope.tenantId, task.scenarioReleaseId, orgId]);
+        if (!['submitted', 'approved'].includes(task.status) || latest?.id !== scenarioReleaseId) {
+          throw new CarbonError(409, 'RULE_RECALCULATION_CONFLICT', '原任务或新版场景已变化，请刷新后重试。');
+        }
+        const key = [scope.tenantId, orgId, caseId, scenarioReleaseId];
+        const {rows: [existing]} = await tx.query(`
+          SELECT ${caseDetailFields} FROM carbon.case_intake
+          WHERE (tenant_id, org_id, rule_recalculation_of, scenario_release_id) = ($1, $2, $3, $4)
+            AND created_by = $5
+          ORDER BY id LIMIT 1
+        `, [...key, scope.actorId]);
+        if (existing) return {status: 200, body: {...caseDetail(existing), ruleRecalculationOf: caseId}};
+        const {rows: [created]} = await tx.query(`
+          INSERT INTO carbon.case_intake
+            (tenant_id, org_id, rule_recalculation_of, scenario_release_id, created_by, id, purpose, intake_scope)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          RETURNING ${caseDetailFields}
+        `, [...key, scope.actorId, randomUUID(), task.purpose, task.scope ?? null]);
+        return {status: 201, body: {...caseDetail(created), ruleRecalculationOf: caseId}};
       });
     },
 
@@ -890,9 +1143,9 @@ export function createIntakeService(database, quarantine) {
         const {rows} = await tx.query(`
           SELECT DISTINCT ON (code) id, code, version, manifest->'catalog' AS catalog
           FROM carbon.scenario_release
-          WHERE tenant_id = $1
-          ORDER BY code, version DESC
-        `, [scope.tenantId]);
+          WHERE tenant_id = $1 AND (org_id IS NULL OR org_id = $2)
+          ORDER BY code, version DESC, (org_id IS NOT NULL) DESC
+        `, [scope.tenantId, orgId]);
         const items = [];
         for (const {id, code, version, catalog} of rows) {
           if (!catalogFields.every(field => typeof catalog?.[field] === 'string' && catalog[field].trim())) continue;
@@ -909,7 +1162,8 @@ export function createIntakeService(database, quarantine) {
       return inWorkspace(scope, async tx => {
         await requireRole(tx, scope, input.orgId, 'customer');
         const {rows: [release]} = await tx.query(`
-          SELECT version, manifest->'catalog' AS catalog FROM carbon.scenario_release WHERE tenant_id = $1 AND id = $2
+          SELECT version, manifest->'catalog' AS catalog FROM carbon.scenario_release
+          WHERE tenant_id = $1 AND id = $2
         `, [scope.tenantId, input.scenarioReleaseId]);
         if (!release) {
           throw new CarbonError(404, 'SCENARIO_NOT_FOUND', '未找到可访问的场景版本。');

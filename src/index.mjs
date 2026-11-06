@@ -9,6 +9,13 @@ const fileSignatures = new Map([
 ]);
 const routes = {
   scenarioReferences: /^\/v1\/customer\/scenarios\/([^/]+)\/references$/,
+  ruleAssessment: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/rule-assessment$/,
+  recordRuleAssessment: /^\/v1\/professional\/cases\/([^/]+)\/revisions\/([^/]+)\/rule-assessment$/,
+  ruleImpact: /^\/v1\/admin\/organizations\/([^/]+)\/rule-impact$/,
+  ruleCatalog: /^\/v1\/admin\/organizations\/([^/]+)\/rule-catalog$/,
+  adminRuleProposals: /^\/v1\/admin\/organizations\/([^/]+)\/rule-proposals$/,
+  reviewRuleProposal: /^\/v1\/professional\/rule-proposals\/([^/]+)\/review$/,
+  ruleRecalculation: /^\/v1\/customer\/cases\/([^/]+)\/rule-recalculation$/,
   cases: /^\/v1\/(customer|professional)\/cases$/,
   case: /^\/v1\/(customer|professional)\/cases\/([^/]+)$/,
   history: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/history$/,
@@ -87,6 +94,26 @@ function revision(value) {
 function revisionParam(value) {
   if (!/^\d+$/.test(value)) badRequest('任务版本必须为正整数。');
   return revision(Number(value));
+}
+
+function proposedRuleReferences(input) {
+  if (!Array.isArray(input) || input.length > 20) badRequest('候选依据须为不超过 20 项的列表。');
+  const seen = new Set();
+  return input.map(entry => {
+    const fields = ['code', 'title', 'publisher', 'sourceUrl', 'scopeNote', 'publicationStatus'];
+    const {code, title, publisher, sourceUrl, scopeNote, publicationStatus} = commandBody(entry, fields);
+    if (typeof code !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(code) || code.length > 120 || seen.has(code)) {
+      badRequest('候选依据编码无效或重复。');
+    }
+    const url = typeof sourceUrl === 'string' && sourceUrl.length <= 1000 ? URL.parse(sourceUrl) : null;
+    if (url?.protocol !== 'https:' || url.username || url.password) badRequest('候选依据须提供有效的 HTTPS 原文。');
+    if (!['effective', 'pilot', 'draft', 'superseded', 'expired', 'unclassified'].includes(publicationStatus)) {
+      badRequest('请选择有效的依据发布状态。');
+    }
+    seen.add(code);
+    return {code, title: requiredText(title, '依据名称', 200), publisher: requiredText(publisher, '发布机构', 200),
+      sourceUrl: url.href, scopeNote: requiredText(scopeNote, '适用说明'), publicationStatus};
+  });
 }
 
 function calculationMonths(from, to) {
@@ -222,6 +249,22 @@ function errorResponse(error) {
     || (error?.code === '23505' && error.constraint === 'case_factor_decision_pkey')) {
     return {status: 409, body: {error: {code: 'FACTOR_DECISION_CONFLICT', message: '仅当前待复核提交可记录一次因子选择。'}}};
   }
+  if ((error?.code === '23514' && error.constraint === 'case_rule_decision_submission_state')
+    || (error?.code === '23505' && error.constraint === 'case_rule_decision_pkey')) {
+    return {status: 409, body: {error: {code: 'RULE_ASSESSMENT_CONFLICT', message: '仅当前待复核提交可记录一次规则判断。'}}};
+  }
+  if (error?.code === '23514' && error.constraint === 'case_rule_decision_reference') {
+    return {status: 409, body: {error: {code: 'RULE_REFERENCE_UNAVAILABLE', message: '请先核对申报范围及可确认的候选依据。'}}};
+  }
+  if (error?.code === '23514' && error.constraint === 'scenario_rule_proposal_transition') {
+    return {status: 409, body: {error: {code: 'RULE_PROPOSAL_CONFLICT', message: '该规则草案已变更，请刷新后重试。'}}};
+  }
+  if (error?.code === '23514' && error.constraint === 'case_intake_rule_recalculation_source') {
+    return {status: 409, body: {error: {code: 'RULE_RECALCULATION_CONFLICT', message: '原任务或新版场景已变化，请刷新后重试。'}}};
+  }
+  if (error?.constraint === 'case_intake_scenario_scope' || error?.constraint === 'scenario_rule_proposal_base_scope') {
+    return {status: 404, body: {error: {code: 'SCENARIO_NOT_FOUND', message: '未找到可访问的场景版本。'}}};
+  }
   if (error?.code === '23514') {
     const importErrors = {
       activity_import_not_found: [404, 'IMPORT_NOT_FOUND', '未找到可访问的导入批次。'],
@@ -272,6 +315,43 @@ export function createCarbonApi(database, {quarantine, renderDeliveryPdf} = {}) 
               scope, orgId, caseId, evidenceId, mediaType, bytes)};
           }
           queryFields(query, []);
+          const ruleImpact = routes.ruleImpact.exec(path);
+          if (ruleImpact) {
+            const input = commandBody(request.body, ['scenarioReleaseId', 'references']);
+            return {status: 200, body: await intake.previewRuleImpact(scope, uuid(ruleImpact[1], '组织'),
+              uuid(input.scenarioReleaseId, '场景版本'), proposedRuleReferences(input.references))};
+          }
+          const adminRuleProposals = routes.adminRuleProposals.exec(path);
+          if (adminRuleProposals) {
+            const input = commandBody(request.body, ['scenarioReleaseId', 'references']);
+            return {status: 201, body: await intake.submitRuleProposal(scope, uuid(adminRuleProposals[1], '组织'),
+              uuid(input.scenarioReleaseId, '场景版本'), proposedRuleReferences(input.references))};
+          }
+          const reviewRuleProposal = routes.reviewRuleProposal.exec(path);
+          if (reviewRuleProposal) {
+            const input = commandBody(request.body, ['orgId', 'decision', 'reason']);
+            if (!['approved', 'returned'].includes(input.decision)) badRequest('请选择通过或退回规则草案。');
+            return {status: 200, body: await intake.reviewRuleProposal(scope, uuid(input.orgId, '组织'),
+              uuid(reviewRuleProposal[1], '规则草案'), input.decision, requiredText(input.reason, '审批意见'))};
+          }
+          const ruleRecalculation = routes.ruleRecalculation.exec(path);
+          if (ruleRecalculation) {
+            const input = commandBody(request.body, ['orgId', 'scenarioReleaseId']);
+            return await intake.createRuleRecalculation(scope, uuid(input.orgId, '组织'),
+              uuid(ruleRecalculation[1], '原任务'), uuid(input.scenarioReleaseId, '新版场景'));
+          }
+          const recordRuleAssessment = routes.recordRuleAssessment.exec(path);
+          if (recordRuleAssessment) {
+            const input = commandBody(request.body, ['orgId', 'status', 'rationale'], ['referenceCode']);
+            const {status, referenceCode} = input;
+            if (status !== 'confirmed' && status !== 'needs_review') badRequest('请选择确认适用或待核实。');
+            if (status === 'confirmed'
+              ? typeof referenceCode !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(referenceCode)
+              : Object.hasOwn(input, 'referenceCode')) badRequest('请为确认适用的判断提供有效候选依据。');
+            return {status: 201, body: await intake.recordRuleAssessment(scope, uuid(input.orgId, '组织'),
+              uuid(recordRuleAssessment[1], '任务'), revisionParam(recordRuleAssessment[2]),
+              {status, referenceCode: referenceCode ?? null, rationale: requiredText(input.rationale, '判断依据')})};
+          }
           const factorDecision = routes.factorDecision.exec(path);
           if (factorDecision?.[1] === 'professional') {
             const input = commandBody(request.body, ['orgId', 'factorId', 'factorVersion', 'accountingBasis', 'regionCode',
@@ -541,6 +621,13 @@ export function createCarbonApi(database, {quarantine, renderDeliveryPdf} = {}) 
             return {status: 200, body: await intake.listScenarioReferences(scope,
               uuid(query.get('orgId'), '组织'), uuid(scenarioReferences[1], '场景版本'))};
           }
+          const ruleAssessment = routes.ruleAssessment.exec(path);
+          if (ruleAssessment) {
+            queryFields(query, ['orgId', 'revision']);
+            const version = query.get('revision');
+            return {status: 200, body: await intake.readRuleAssessment(scope, uuid(query.get('orgId'), '组织'),
+              uuid(ruleAssessment[2], '任务'), version === null ? null : revisionParam(version), ruleAssessment[1] === 'customer')};
+          }
           const list = routes.cases.exec(path);
           if (list) {
             queryFields(query, ['orgId', 'limit', 'cursor']);
@@ -594,6 +681,20 @@ export function createCarbonApi(database, {quarantine, renderDeliveryPdf} = {}) 
             const [limit, offset] = paging(query);
             const read = administration[2] === 'grants' ? intake.listGrants : intake.listAudit;
             return {status: 200, body: await read(scope, orgId, limit, offset)};
+          }
+          const ruleCatalog = routes.ruleCatalog.exec(path);
+          if (ruleCatalog) {
+            queryFields(query, []);
+            return {status: 200, body: await intake.listRuleCatalog(scope, uuid(ruleCatalog[1], '组织'))};
+          }
+          const adminRuleProposals = routes.adminRuleProposals.exec(path);
+          if (adminRuleProposals) {
+            queryFields(query, []);
+            return {status: 200, body: await intake.listRuleProposals(scope, uuid(adminRuleProposals[1], '组织'), false)};
+          }
+          if (path === '/v1/professional/rule-proposals') {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.listRuleProposals(scope, uuid(query.get('orgId'), '组织'), true)};
           }
         }
         fail(404, 'ROUTE_NOT_FOUND', '未找到该操作。');

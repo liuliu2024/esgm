@@ -1,5 +1,6 @@
 import { evidenceStatusLabel, getContext, internalReportHref, renderCasePreparation, renderHistory, renderRevisionEvidence, reportItemDisplay, reportTotals, request, statusLabel } from '/shared.mjs';
 import { bindFactorRegions, showFactorDecision } from '/factor-decision.mjs';
+import { bindRuleAssessment } from '/rule-assessment.mjs';
 
 const queue = document.querySelector('#queue');
 const queueStatus = document.querySelector('#queue-status');
@@ -17,6 +18,7 @@ const history = document.querySelector('#history');
 const evidenceStatus = document.querySelector('#evidence-status');
 const evidenceList = document.querySelector('#evidence-list');
 const revisionEvidenceSection = document.querySelector('#revision-evidence-section');
+const showRuleAssessment = bindRuleAssessment(document.querySelector('#case-rule-assessment'));
 const evidenceRevision = document.querySelector('#evidence-revision');
 const revisionEvidenceStatus = document.querySelector('#revision-evidence-status');
 const revisionEvidenceError = document.querySelector('#revision-evidence-error');
@@ -58,6 +60,108 @@ const reportStates = { submitted: '待复核', reviewed: '内部复核通过', r
 const subjectTypes = { organization: '组织', facility: '设施', product: '产品', project: '项目' };
 const drafts = new Map();
 let orgId;
+const ruleProposalPanel = document.querySelector('#rule-proposal-review');
+const ruleProposalStatus = document.querySelector('#rule-proposal-review-status');
+const ruleProposalError = document.querySelector('#rule-proposal-review-error');
+const ruleProposalList = document.querySelector('#rule-proposal-review-list');
+const ruleProposalRefresh = document.querySelector('#rule-proposal-review-refresh');
+const proposalStateLabels = {submitted: '待审批', approved: '已审批 · 待发布', returned: '已退回', published: '已发布'};
+const publicationLabels = {effective: '现行', pilot: '试点', draft: '草案', superseded: '已替代', expired: '已失效', unclassified: '状态未核实'};
+let reviewingProposal = false;
+
+function proposalRow(item) {
+  const row = document.createElement('li');
+  const heading = document.createElement('strong');
+  heading.textContent = `${item.title} · 第 ${item.scenarioVersion} 版 · ${proposalStateLabels[item.status] ?? item.status}`;
+  row.append(heading);
+  if (item.reviewNote) {
+    const note = document.createElement('p');
+    note.textContent = `审批意见：${item.reviewNote}`;
+    row.append(note);
+  }
+  const changeLabels = {added: '新增', changed: '变更', removed: '移除'};
+  for (const {code, type, before, after} of item.changes ?? []) {
+    const detail = document.createElement('details');
+    const title = document.createElement('summary');
+    title.textContent = `${changeLabels[type]} · ${after?.title ?? before?.title ?? code}`;
+    detail.append(title);
+    for (const [label, reference] of [['现有', before], ['拟议', after]]) {
+      if (!reference) continue;
+      const description = document.createElement('p');
+      description.textContent = `${label} · ${publicationLabels[reference.publicationStatus] ?? '状态未核实'} · ${reference.scopeNote}`;
+      detail.append(description);
+    }
+    row.append(detail);
+  }
+  if (item.status !== 'submitted' || !item.canReview) return row;
+
+  const form = document.createElement('form');
+  const label = document.createElement('label');
+  label.textContent = '审批意见';
+  const reason = document.createElement('textarea');
+  reason.maxLength = 500;
+  reason.required = true;
+  label.append(reason);
+  const error = document.createElement('p');
+  error.setAttribute('role', 'alert');
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  for (const [value, name] of [['approved', '批准草案'], ['returned', '退回草案']]) {
+    const button = document.createElement('button');
+    button.type = 'submit';
+    button.value = value;
+    button.textContent = name;
+    actions.append(button);
+  }
+  form.append(label, error, actions);
+  reason.addEventListener('input', () => reason.setCustomValidity(''));
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (reviewingProposal || ruleProposalRefresh.disabled || !event.submitter) return;
+    const explanation = reason.value.trim();
+    reason.setCustomValidity(explanation ? '' : '请填写审批意见。');
+    if (!reason.reportValidity()) return;
+    reviewingProposal = ruleProposalRefresh.disabled = true;
+    for (const control of form.elements) control.disabled = true;
+    error.textContent = '';
+    try {
+      const updated = await request(`/v1/professional/rule-proposals/${encodeURIComponent(item.proposalId)}/review`,
+        {orgId, decision: event.submitter.value, reason: explanation});
+      row.replaceWith(proposalRow({...item, ...updated}));
+      ruleProposalStatus.textContent = updated.status === 'approved' ? '已批准草案，等待发布岗发布。' : '已退回草案。';
+    } catch (failure) {
+      error.textContent = failure.message;
+    } finally {
+      for (const control of form.elements) control.disabled = false;
+      reviewingProposal = ruleProposalRefresh.disabled = false;
+    }
+  });
+  row.append(form);
+  return row;
+}
+
+async function loadRuleProposals() {
+  if (!orgId || ruleProposalRefresh.disabled) return;
+  ruleProposalRefresh.disabled = true;
+  ruleProposalError.textContent = '';
+  ruleProposalStatus.textContent = '正在读取草案…';
+  try {
+    const {items} = await request(`/v1/professional/rule-proposals?${new URLSearchParams({orgId})}`);
+    ruleProposalList.replaceChildren(...items.map(proposalRow));
+    ruleProposalList.hidden = !items.length;
+    ruleProposalStatus.textContent = items.length ? '' : '本组织暂无规则草案。';
+  } catch (error) {
+    ruleProposalStatus.textContent = '';
+    ruleProposalError.textContent = error.message;
+  } finally {
+    ruleProposalRefresh.disabled = false;
+  }
+}
+
+ruleProposalPanel.addEventListener('toggle', () => {
+  if (ruleProposalPanel.open) void loadRuleProposals();
+});
+ruleProposalRefresh.addEventListener('click', () => void loadRuleProposals());
 let selected;
 let cursor;
 let viewing;
@@ -338,6 +442,7 @@ async function loadCase(item, focus = false) {
   calculationForm.reset();
   clearRevisionCalculation();
   showFactorDecision();
+  showRuleAssessment();
   resetReportView();
   detail.hidden = true;
   detailStatus.textContent = '正在加载详情';
@@ -360,6 +465,8 @@ async function loadCase(item, focus = false) {
       revisionEvidenceView = { base };
       void loadRevisionEvidence();
       showFactorDecision({base, orgId, revision: submitted[0].revision,
+        canDecide: canReview && submitted[0].revision === current.revision});
+      showRuleAssessment({base, orgId, revision: submitted[0].revision,
         canDecide: canReview && submitted[0].revision === current.revision});
     }
     evidenceList.replaceChildren();
@@ -463,11 +570,14 @@ reportPanel.addEventListener('toggle', () => {
   if (reportPanel.open && reportView) void loadReports(reportView);
 });
 evidenceRevision.addEventListener('change', () => {
+  if (!revisionEvidenceView || !selected) return;
   clearRevisionCalculation();
   void loadRevisionEvidence();
   void loadRevisionActivity();
   const revision = Number(evidenceRevision.value);
   showFactorDecision({base: revisionEvidenceView.base, orgId, revision,
+    canDecide: selected.nextAction === 'review' && selected.revision === revision});
+  showRuleAssessment({base: revisionEvidenceView.base, orgId, revision,
     canDecide: selected.nextAction === 'review' && selected.revision === revision});
 });
 revisionActivity.addEventListener('toggle', () => void loadRevisionActivity());
@@ -558,6 +668,7 @@ factorForm.addEventListener('submit', async event => {
 });
 try {
   ({ orgId } = await getContext('professional'));
+  if (ruleProposalPanel.open) void loadRuleProposals();
   void factorRegions.load();
   const page = await loadQueue();
   const linkedCase = new URLSearchParams(location.search).get('case');

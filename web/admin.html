@@ -39,6 +39,54 @@
         <button type="button" id="next-page">下一页</button>
       </div>
     </section>
+    <details class="panel" id="rule-impact-panel">
+      <summary>规则变更影响</summary>
+      <div class="stack">
+        <p class="muted">仅统计本组织中引用所选场景版本的任务。</p>
+        <p id="rule-impact-status" role="status"></p>
+        <p id="rule-impact-error" role="alert"></p>
+        <button type="button" id="rule-catalog-retry" hidden>重新读取规则目录</button>
+        <form id="rule-impact-form" hidden>
+          <label for="rule-impact-scenario">场景版本</label>
+          <select id="rule-impact-scenario" required></select>
+          <label for="rule-impact-reference">参考规则</label>
+          <select id="rule-impact-reference" required disabled></select>
+          <div id="rule-impact-fields" class="stack" hidden>
+            <label for="rule-impact-publication">拟议发布状态</label>
+            <select id="rule-impact-publication" required>
+              <option value="effective">现行</option>
+              <option value="pilot">试点</option>
+              <option value="draft">草案</option>
+              <option value="superseded">已替代</option>
+              <option value="expired">已失效</option>
+              <option value="unclassified">状态未核实</option>
+            </select>
+            <label for="rule-impact-note">拟议适用说明</label>
+            <textarea id="rule-impact-note" maxlength="500" required></textarea>
+            <button type="submit" id="rule-impact-preview">预览影响</button>
+          </div>
+        </form>
+        <section id="rule-impact-result" class="stack" aria-labelledby="rule-impact-heading" hidden>
+          <h3 id="rule-impact-heading">变更预览</h3>
+          <ul id="rule-impact-changes" class="history-list"></ul>
+          <h3>本组织关联任务</h3>
+          <ul id="rule-impact-counts" class="history-list"></ul>
+          <p id="rule-impact-no-tasks" class="muted" hidden>暂无关联任务。</p>
+          <p id="rule-impact-dependencies" class="muted"></p>
+          <button type="button" id="rule-proposal-submit" hidden>提交独立审批</button>
+        </section>
+      </div>
+    </details>
+    <details class="panel" id="rule-proposals-panel">
+      <summary>规则草案进度</summary>
+      <div class="stack">
+        <p class="muted">草案由独立专业人员审批。发布岗发布的新版仅在本组织生效。</p>
+        <p id="rule-proposals-status" role="status"></p>
+        <p id="rule-proposals-error" role="alert"></p>
+        <ul id="rule-proposals-list" class="history-list" hidden></ul>
+        <button type="button" id="rule-proposals-refresh">刷新进度</button>
+      </div>
+    </details>
   </main>
 </body>
 </html>

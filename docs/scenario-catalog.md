@@ -32,6 +32,22 @@
 
 验收逐项核对已选版本、对应参考原文、材料登记、受理提交、独立复核退回及审计。专业复核的对象是受理资料，政策适用性仍待确认。正式核查、交易及清缴、零碳项目管理和 ESG 披露分别按其专项流程实施。其他租户需通过各自的授权发布流程配置场景。
 
+## 任务规则模块 STD01–04
+
+- **STD01 适用判断。** 企业及专业端使用 `GET /v1/{customer|professional}/cases/:caseId/rule-assessment?orgId=…&revision=…` 查任务固定场景的候选、申报范围、缺口和专业判断。省略 `revision` 时读取最新提交；草稿可查看候选。专业人员在 `POST /v1/professional/cases/:caseId/revisions/:revision/rule-assessment` 提交 `{orgId,status,referenceCode?,rationale}`，当前提交只能由独立复核者记录一次。待核实只填理由，确认适用须有申报范围和可确认的候选。重提使用新提交，历史记录保留。
+- **STD02 规则状态与版本。** 候选区分已生效、试行、草案、已替代、已失效和旧记录待核实。管理员提交变更，独立专业人员批准或退回并记录理由。具备既有发布权限的操作方使用 `node infra/publish-scenario-rule.mjs <tenantId> <orgId> <proposalId>` 为提案组织发布新版本。租户共享模板仍可供各组织使用。发布和记录在同一事务；基准已过期时拒绝，重放返回原版本。站内可查看状态。样例依据状态对照 [GB/T 24067-2024 标准信息](https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=73912F93FD4874CC426CEBFCE2898493) 及 [财政部可持续披露基本准则通知](https://kjs.mof.gov.cn/zhengcefabu/202412/t20241216_3949745.htm)。
+- **STD03 影响预览与重算选择。** 管理端列候选差异、本组织关联任务状态和已保存的因子决定、模型快照、报告稿件数。这些是待核对的关联对象数。任务创建者可选择最新版新建关联重算任务，复制原用途和申报范围；活动数据须经核对后重新提交，旧任务、快照及报告保留。规则新版是否适用仍由专业人员确认。
+- **STD04 场景模板。** 样例增加公共机构盘查模板，沿用现有行业目录、受理、材料、规则和授权。模板由场景发布配置维护。
+
+| 方法 | 路径与输入 |
+| --- | --- |
+| GET | `/v1/admin/organizations/:orgId/rule-catalog` |
+| POST | `/v1/admin/organizations/:orgId/rule-impact`，`{scenarioReleaseId,references}` |
+| GET / POST | `/v1/admin/organizations/:orgId/rule-proposals`，提交为 `{scenarioReleaseId,references}` |
+| GET | `/v1/professional/rule-proposals?orgId=…` |
+| POST | `/v1/professional/rule-proposals/:proposalId/review`，`{orgId,decision,reason}` |
+| POST | `/v1/customer/cases/:caseId/rule-recalculation`，`{orgId,scenarioReleaseId}` |
+
 ## 产品足迹与境外买方资料分流
 
 | 入口 | 场景代码 | 材料和报告要求 | 原文依据 |
