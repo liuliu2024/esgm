@@ -1,4 +1,4 @@
-import { getContext, renderCasePreparation, renderHistory, request, statusLabel } from './shared.mjs';
+import { evidenceStatusLabel, getContext, renderCasePreparation, renderHistory, renderRevisionEvidence, request, statusLabel } from './shared.mjs';
 
 const element = id => document.getElementById(id);
 const list = element('cases');
@@ -25,8 +25,12 @@ const evidenceState = element('evidence-state');
 const evidenceItems = element('evidence-items');
 const evidenceForm = element('register-evidence');
 const evidenceError = element('evidence-error');
+const revisionEvidence = element('case-revision-evidence');
+const revisionEvidenceState = element('case-revision-evidence-state');
+const revisionEvidenceItems = element('case-revision-evidence-items');
 const base = '/v1/customer/cases';
 const notes = new Map();
+const selectedEvidence = new Map();
 const workflows = new Map();
 const industry = element('industry');
 const scenario = element('scenario');
@@ -495,6 +499,14 @@ function renderDetail() {
   detail.hidden = creating || !selected;
   element('placeholder').hidden = !detail.hidden || creating;
   if (detail.hidden) return;
+  if (revisionEvidence.dataset.caseId !== selected.id || revisionEvidence.dataset.revision !== String(selected.revision)) {
+    revisionEvidence.open = false;
+    revisionEvidence.dataset.caseId = selected.id;
+    revisionEvidence.dataset.revision = String(selected.revision);
+    revisionEvidenceState.textContent = '';
+    renderRevisionEvidence(revisionEvidenceItems, []);
+  }
+  revisionEvidence.hidden = selected.status === 'draft';
   title.textContent = selected.purpose;
   const status = element('case-status');
   status.textContent = statusLabel(selected.status);
@@ -574,11 +586,26 @@ async function loadEvidence() {
     for (const evidence of items) {
       const entry = document.createElement('li');
       const title = document.createElement('strong');
-      const label = { pending_file: '待补文件', pending_scan: '待检查' }[evidence.status];
-      title.textContent = evidence.title + ' · ' + (label ?? evidence.status);
+      title.textContent = evidence.title + ' · ' + evidenceStatusLabel(evidence.status);
       const source = document.createElement('p');
       source.textContent = evidence.sourceDescription;
       entry.append(title, source);
+      if (evidence.status === 'passed' && (item.status === 'draft' || item.status === 'returned')) {
+        const option = document.createElement('label');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.disabled = busy;
+        checkbox.checked = selectedEvidence.get(item.id)?.has(evidence.id) ?? false;
+        checkbox.addEventListener('change', () => {
+          const ids = selectedEvidence.get(item.id) ?? new Set();
+          if (checkbox.checked) ids.add(evidence.id);
+          else ids.delete(evidence.id);
+          selectedEvidence.set(item.id, ids);
+        });
+        option.className = 'scope-toggle';
+        option.append(checkbox, `随本次提交引用：${evidence.title}`);
+        entry.append(option);
+      }
       if (evidence.status === 'pending_file' && (item.status === 'draft' || item.status === 'returned')) {
         const form = element('evidence-upload').content.firstElementChild.cloneNode(true);
         const input = form.querySelector('input');
@@ -620,6 +647,30 @@ async function loadEvidence() {
     if (selected === item && !creating && load === evidenceLoad) evidenceState.textContent = error.message;
   }
 }
+
+revisionEvidence.addEventListener('toggle', async () => {
+  const item = selected;
+  if (!item || !revisionEvidence.open) return;
+  revisionEvidenceState.textContent = '正在读取提交版本…';
+  renderRevisionEvidence(revisionEvidenceItems, []);
+  const query = new URLSearchParams({orgId: context.orgId});
+  const taskPath = `${base}/${item.id}`;
+  try {
+    const {events} = await request(`${taskPath}/history?${query}`);
+    if (selected !== item || !revisionEvidence.open) return;
+    const submission = events.findLast(event => event.action === 'submitted');
+    if (!submission) {
+      revisionEvidenceState.textContent = '暂无已提交版本。';
+      return;
+    }
+    const {items} = await request(`${taskPath}/revisions/${submission.revision}/evidence?${query}`);
+    if (selected !== item || !revisionEvidence.open) return;
+    renderRevisionEvidence(revisionEvidenceItems, items);
+    revisionEvidenceState.textContent = `第 ${submission.revision} 版${items.length ? '' : '未引用材料。'}`;
+  } catch (error) {
+    if (selected === item && revisionEvidence.open) revisionEvidenceState.textContent = error.message;
+  }
+});
 
 list.addEventListener('click', async event => {
   const button = event.target.closest('button[data-id]');
@@ -750,12 +801,15 @@ async function sendCase(isCorrection) {
   feedback.textContent = '';
   if (isCorrection) notes.set(item.id, correction.value);
   const body = { orgId: context.orgId, revision: item.revision };
+  const evidenceIds = selectedEvidence.get(item.id);
+  if (evidenceIds?.size) body.evidenceIds = [...evidenceIds];
   if (isCorrection) body.correctionNote = correction.value;
   setBusy(true);
   try {
     const action = isCorrection ? 'resubmit' : 'submit';
     const current = await request(base + '/' + item.id + '/' + action, body);
     notes.delete(item.id);
+    selectedEvidence.delete(item.id);
     if (current.id === item.id && !Object.hasOwn(current, 'scenarioPreparation') && item.scenarioPreparation) {
       current.scenarioPreparation = item.scenarioPreparation;
     }

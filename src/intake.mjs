@@ -15,8 +15,9 @@ const caseFields = `id, org_id AS "orgId", scenario_release_id AS "scenarioRelea
 const caseDetailFields = `${caseFields}, intake_scope AS scope`;
 const eventFields = `id, case_id AS "caseId", actor_id AS "actorId", action, reason, revision,
   correction_note AS "correctionNote", request_id AS "requestId", created_at AS "createdAt"`;
-const evidenceFields = `id, case_id AS "caseId", org_id AS "orgId", registered_by AS "registeredBy",
-  title, source_description AS "sourceDescription", created_at AS "createdAt"`;
+const evidenceFields = `evidence.id, evidence.case_id AS "caseId", evidence.org_id AS "orgId",
+  evidence.registered_by AS "registeredBy", evidence.title,
+  evidence.source_description AS "sourceDescription", evidence.created_at AS "createdAt"`;
 const catalogFields = ['industryCode', 'industryName', 'title', 'purpose', 'recipient'];
 const referenceFields = ['code', 'title', 'publisher', 'sourceUrl', 'scopeNote'];
 const activityTemplate = 'activity-csv-v1';
@@ -660,7 +661,8 @@ export function createIntakeService(database, quarantine) {
         const task = await readVisibleCase(tx, scope, orgId, id, true);
         requireEditableCase(task, '任务当前不能登记材料，请刷新后查看状态。');
         const result = await tx.query(`
-          INSERT INTO carbon.case_evidence (tenant_id, org_id, case_id, id, registered_by, title, source_description)
+          INSERT INTO carbon.case_evidence AS evidence
+            (tenant_id, org_id, case_id, id, registered_by, title, source_description)
           VALUES ($1, $2, $3, $4, $5, $6, $7)
           RETURNING ${evidenceFields}, 'pending_file' AS status
         `, [scope.tenantId, orgId, id, randomUUID(), scope.actorId, title, sourceDescription]);
@@ -673,16 +675,19 @@ export function createIntakeService(database, quarantine) {
         await readVisibleCase(tx, scope, orgId, id, customerOnly);
         const result = await tx.query(`
           SELECT ${evidenceFields},
-            CASE WHEN EXISTS (
-              SELECT 1 FROM carbon.evidence_receipt AS receipt
-              WHERE receipt.tenant_id = evidence.tenant_id
-                AND receipt.org_id = evidence.org_id
-                AND receipt.case_id = evidence.case_id
-                AND receipt.evidence_id = evidence.id
-            ) THEN 'pending_scan' ELSE 'pending_file' END AS status
+            CASE
+              WHEN receipt.id IS NULL THEN 'pending_file'
+              WHEN scan.verdict = 'pass' THEN 'passed'
+              WHEN scan.verdict = 'rejected' THEN 'rejected'
+              ELSE 'pending_scan'
+            END AS status
           FROM carbon.case_evidence AS evidence
-          WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3
-          ORDER BY created_at, id
+          LEFT JOIN carbon.evidence_receipt AS receipt
+            ON receipt.tenant_id = evidence.tenant_id AND receipt.org_id = evidence.org_id
+            AND receipt.case_id = evidence.case_id AND receipt.evidence_id = evidence.id
+          LEFT JOIN carbon.evidence_scan AS scan ON scan.receipt_id = receipt.id
+          WHERE evidence.tenant_id = $1 AND evidence.org_id = $2 AND evidence.case_id = $3
+          ORDER BY evidence.created_at, evidence.id
         `, [scope.tenantId, orgId, id]);
         return {items: result.rows};
       });

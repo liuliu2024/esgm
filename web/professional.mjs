@@ -1,4 +1,4 @@
-import { getContext, renderCasePreparation, renderHistory, request, statusLabel } from '/shared.mjs';
+import { evidenceStatusLabel, getContext, renderCasePreparation, renderHistory, renderRevisionEvidence, request, statusLabel } from '/shared.mjs';
 
 const queue = document.querySelector('#queue');
 const queueStatus = document.querySelector('#queue-status');
@@ -15,6 +15,11 @@ const returnButton = document.querySelector('#return');
 const history = document.querySelector('#history');
 const evidenceStatus = document.querySelector('#evidence-status');
 const evidenceList = document.querySelector('#evidence-list');
+const revisionEvidenceSection = document.querySelector('#revision-evidence-section');
+const evidenceRevision = document.querySelector('#evidence-revision');
+const revisionEvidenceStatus = document.querySelector('#revision-evidence-status');
+const revisionEvidenceError = document.querySelector('#revision-evidence-error');
+const revisionEvidenceList = document.querySelector('#revision-evidence-list');
 const factorForm = document.querySelector('#factor-reference-form');
 const factorBasis = document.querySelector('#factor-accounting-basis');
 const factorYear = document.querySelector('#factor-data-year');
@@ -44,6 +49,27 @@ let cursor;
 let viewing;
 let saving = false;
 let reportView;
+let revisionEvidenceView;
+
+async function loadRevisionEvidence() {
+  const view = revisionEvidenceView;
+  if (!view) return;
+  const selection = Symbol();
+  view.selection = selection;
+  renderRevisionEvidence(revisionEvidenceList, []);
+  revisionEvidenceStatus.textContent = '正在读取提交证据…';
+  revisionEvidenceError.textContent = '';
+  try {
+    const { items } = await request(`${view.base}/revisions/${evidenceRevision.value}/evidence?${new URLSearchParams({ orgId })}`);
+    if (revisionEvidenceView !== view || view.selection !== selection) return;
+    renderRevisionEvidence(revisionEvidenceList, items);
+    revisionEvidenceStatus.textContent = items.length ? '' : '该版本未绑定证据。';
+  } catch (error) {
+    if (revisionEvidenceView !== view || view.selection !== selection) return;
+    revisionEvidenceStatus.textContent = '';
+    revisionEvidenceError.textContent = error.message;
+  }
+}
 
 function resetReportView() {
   reportView = undefined;
@@ -208,6 +234,8 @@ function drawCase(item, canReview) {
 async function loadCase(item, focus = false) {
   const selection = Symbol();
   viewing = selection;
+  revisionEvidenceView = undefined;
+  revisionEvidenceSection.hidden = true;
   resetReportView();
   detail.hidden = true;
   detailStatus.textContent = '正在加载详情';
@@ -223,6 +251,13 @@ async function loadCase(item, focus = false) {
     const canReview = item.nextAction === 'review' && current.status === 'submitted';
     selected = { ...current, nextAction: canReview ? 'review' : 'none' };
     reportView = { base: `${base}/internal-report-drafts`, caseStatus: current.status };
+    const submitted = events.filter(event => event.action === 'submitted').sort((a, b) => b.revision - a.revision);
+    evidenceRevision.replaceChildren(...submitted.map(event => new Option(`第 ${event.revision} 版`, event.revision)));
+    revisionEvidenceSection.hidden = !submitted.length;
+    if (submitted.length) {
+      revisionEvidenceView = { base };
+      void loadRevisionEvidence();
+    }
     evidenceList.replaceChildren();
     evidenceList.hidden = true;
     evidenceStatus.textContent = '正在加载材料';
@@ -238,12 +273,10 @@ async function loadCase(item, focus = false) {
         title.textContent = item.title;
         source.textContent = `来源：${item.sourceDescription}`;
         row.append(title);
-        if (item.status === 'pending_file' || item.status === 'pending_scan') {
-          const status = document.createElement('span');
-          status.className = 'status';
-          status.textContent = item.status === 'pending_scan' ? '待检查' : '待补文件';
-          row.append(' ', status);
-        }
+        const status = document.createElement('span');
+        status.className = 'status';
+        status.textContent = evidenceStatusLabel(item.status);
+        row.append(' ', status);
         row.append(source);
         evidenceList.append(row);
       }
@@ -324,6 +357,7 @@ reason.addEventListener('input', () => {
 reportPanel.addEventListener('toggle', () => {
   if (reportPanel.open && reportView) void loadReports(reportView);
 });
+evidenceRevision.addEventListener('change', () => void loadRevisionEvidence());
 reportMore.addEventListener('click', () => {
   if (reportView?.cursor) void loadReports(reportView, reportView.cursor);
 });

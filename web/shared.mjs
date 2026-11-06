@@ -17,6 +17,27 @@ export async function request(path, body) {
 
 export const getContext = () => request('/demo/context');
 export const statusLabel = status => statuses[status] ?? status;
+const evidenceStatuses = { pending_file: '待补文件', pending_scan: '待检查', passed: '检查通过', rejected: '检查未通过' };
+export const evidenceStatusLabel = status => evidenceStatuses[status] ?? status;
+
+export function renderRevisionEvidence(list, items) {
+  list.replaceChildren(...items.map(({title, sourceDescription, sha256}) => {
+    const row = document.createElement('li');
+    const heading = document.createElement('strong');
+    const source = document.createElement('p');
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    const digest = document.createElement('code');
+    heading.textContent = title;
+    source.textContent = sourceDescription;
+    summary.textContent = `SHA-256 ${sha256.slice(0, 12)}…`;
+    digest.textContent = sha256;
+    details.append(summary, digest);
+    row.append(heading, source, details);
+    return row;
+  }));
+  list.hidden = !items.length;
+}
 
 export function renderCasePreparation(disclosure, caseId, preparation) {
   if (disclosure.dataset.caseId !== caseId || !preparation) disclosure.open = false;

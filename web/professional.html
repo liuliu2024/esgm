@@ -84,9 +84,19 @@
             <p id="return-reason"></p>
           </section>
           <section>
-            <h3>材料清单</h3>
+            <h3>当前材料清单</h3>
             <p id="evidence-status" role="status"></p>
             <ul id="evidence-list" class="task-list" hidden></ul>
+          </section>
+          <section id="revision-evidence-section" class="stack" hidden>
+            <h3>提交版本证据</h3>
+            <div>
+              <label for="evidence-revision">提交版本</label>
+              <select id="evidence-revision"></select>
+            </div>
+            <p id="revision-evidence-status" role="status"></p>
+            <p id="revision-evidence-error" role="alert"></p>
+            <ul id="revision-evidence-list" class="history-list" hidden></ul>
           </section>
           <p id="review-error" role="alert"></p>
           <form id="review-form" hidden>

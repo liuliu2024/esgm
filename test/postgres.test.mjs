@@ -153,6 +153,9 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
       assert.deepEqual(await scanReceipt(tenantId, file.body.id), { receiptId: file.body.id, verdict: 'pass' });
       assert.deepEqual(await scanReceipt(tenantId, file.body.id), { receiptId: file.body.id, verdict: 'pass' });
       assert.equal(scannerCalls, 1);
+      const listed = await dispatch(customer, 'GET', `/v1/customer/cases/${id}/evidence?orgId=${orgId}`);
+      assert.equal(listed.status, 200);
+      assert.deepEqual(listed.body.items.map(({id, status}) => [id, status]), [[evidenceId, 'passed']]);
       await assert.rejects(scannerDatabase.transaction(tx => tx.query('SELECT id FROM carbon.case_intake')), { code: '42501' });
       evidenceReference = { evidenceId, receiptId: file.body.id, sha256: file.body.sha256,
         title: '扫描集成样例', sourceDescription: '测试数据' };
@@ -189,6 +192,9 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
     assert.equal(reportReviewed.body.review.externalDeliveryEligible, false);
 
     if (evidenceReference) {
+      const listed = await dispatch(reviewer, 'GET', `/v1/professional/cases/${id}/evidence?orgId=${orgId}`);
+      assert.equal(listed.status, 200);
+      assert.deepEqual(listed.body.items.map(({id, status}) => [id, status]), [[evidenceReference.evidenceId, 'passed']]);
       const refs = await dispatch(reviewer, 'GET', `/v1/professional/cases/${id}/revisions/2/evidence?orgId=${orgId}`);
       assert.equal(refs.status, 200);
       assert.deepEqual(refs.body.items, [evidenceReference]);
