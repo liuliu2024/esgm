@@ -1,4 +1,4 @@
-import { getContext, renderHistory, request, statusLabel } from './shared.mjs';
+import { getContext, renderCasePreparation, renderHistory, request, statusLabel } from './shared.mjs';
 
 const element = id => document.getElementById(id);
 const list = element('cases');
@@ -500,6 +500,7 @@ function renderDetail() {
   status.textContent = statusLabel(selected.status);
   status.dataset.status = selected.status;
   element('case-revision').textContent = '第 ' + selected.revision + ' 版';
+  renderCasePreparation(element('case-scenario-preparation'), selected.id, selected.scenarioPreparation);
   const scope = selected.scope;
   element('case-intake-scope').hidden = !scope;
   element('case-scope-subject').textContent = scope ? `${subjectTypes[scope.subjectType]} · ${scope.subjectName}` : '';
@@ -755,6 +756,9 @@ async function sendCase(isCorrection) {
     const action = isCorrection ? 'resubmit' : 'submit';
     const current = await request(base + '/' + item.id + '/' + action, body);
     notes.delete(item.id);
+    if (current.id === item.id && !Object.hasOwn(current, 'scenarioPreparation') && item.scenarioPreparation) {
+      current.scenarioPreparation = item.scenarioPreparation;
+    }
     updateCase(current);
     feedback.textContent = '已提交复核。';
     await Promise.all([loadHistory(), loadEvidence()]);

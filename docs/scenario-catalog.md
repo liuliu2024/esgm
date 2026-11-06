@@ -40,3 +40,9 @@
 | 境外客户报告 | `overseas-report-prep` | 买方邮件、模板、语言、期限、报告对象和数据范围。先明确设施排放、产品足迹、CBAM 数据或 ESG 问卷，再核对验证要求与交付授权 | [欧盟 CBAM 正式阶段指引](https://taxation-customs.ec.europa.eu/carbon-border-adjustment-mechanism/cbam-definitive-regime_en)，仅在买方明确索取 CBAM 数据时作为参考 |
 
 目录可选返回 `preparation: { materials: string[], reportRequirements: string[] }`。两个数组须非空且每项为非空文本，其他配置字段不透传。未配置或格式不符时省略该字段，旧客户端和既有买方任务保持兼容。工作台在选定场景后显示该版本的准备清单。保存受理时固定发布 ID，适用规则仍为待确认。清单用于受理准备，正式核算、签发、监管申报与对外共享各自验收。
+
+### 受理详情的版本化清单
+
+企业创建受理及两端读取受理详情时，若任务锁定的场景版本包含有效清单，响应附带 `scenarioPreparation: { title, version, materials, reportRequirements }`。响应中的 `scenarioReleaseId` 标识该版本。服务先验证任务可见性，再在同一租户中按具体发布 ID 读取清单。即使目录已发布更高版本，任务详情仍读原清单。缺少有效配置的既有任务沿用原响应。
+
+准备清单供企业填报和专业复核时对照，与已登记材料分开显示。受理状态接口沿用原响应，企业端提交后保留当前任务的固定清单，专业端重新读取详情。验收时核对发布新版后旧任务内容、草稿专业端不可见、异组织和撤权，以及切换任务不残留旧清单。

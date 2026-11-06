@@ -1,4 +1,4 @@
-import { getContext, renderHistory, request, statusLabel } from '/shared.mjs';
+import { getContext, renderCasePreparation, renderHistory, request, statusLabel } from '/shared.mjs';
 
 const queue = document.querySelector('#queue');
 const queueStatus = document.querySelector('#queue-status');
@@ -185,6 +185,7 @@ function drawCase(item, canReview) {
   setStatus(document.querySelector('#case-status'), item.status);
   document.querySelector('#case-revision').textContent = `第 ${item.revision} 版`;
   document.querySelector('#purpose').textContent = item.purpose;
+  renderCasePreparation(document.querySelector('#case-scenario-preparation'), item.id, item.scenarioPreparation);
   const { scope } = item;
   document.querySelector('#scope-section').hidden = !scope;
   document.querySelector('#scope-subject').textContent = scope ? `${subjectTypes[scope.subjectType]} · ${scope.subjectName}` : '';

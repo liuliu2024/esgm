@@ -92,3 +92,65 @@ test('catalog requires a customer grant for the supplied organization and isolat
   assert.equal((await dispatch('GET', foreignUrl)).status, 403);
   assert.equal((await dispatch('GET', `${url}&orgId=${orgId}`)).status, 400);
 });
+
+test('authorized case details show preparation from the originally selected release', async () => {
+  const preparation = {materials: ['旧版物料凭证'], reportRequirements: ['按旧版边界说明']};
+  const first = await publish('case-preparation', 1, {catalog: {
+    ...manufacturing, preparation: {...preparation, internalNote: '仅配置方查看'}
+  }});
+  const create = scenarioReleaseId => dispatch('POST', '/v1/customer/cases', {
+    orgId, scenarioReleaseId, purpose: manufacturing.purpose
+  });
+  const created = await create(first);
+  assert.equal(created.status, 201);
+  const pinned = {title: manufacturing.title, version: 1, ...preparation};
+  assert.deepEqual(created.body.scenarioPreparation, pinned);
+
+  const current = {title: '新版资料准备', version: 2, materials: ['新版材料'], reportRequirements: ['按新版报告要求']};
+  const second = await publish('case-preparation', current.version, {catalog: {
+    ...manufacturing, title: current.title,
+    preparation: {materials: current.materials, reportRequirements: current.reportRequirements}
+  }});
+  const secondCase = await create(second);
+  assert.equal(secondCase.status, 201);
+  assert.deepEqual(secondCase.body.scenarioPreparation, current);
+
+  const customerCase = `/v1/customer/cases/${created.body.id}`;
+  const professionalCase = `/v1/professional/cases/${created.body.id}`;
+  const customerDetail = `${customerCase}?orgId=${orgId}`;
+  const professionalDetail = `${professionalCase}?orgId=${orgId}`;
+  const original = await dispatch('GET', customerDetail);
+  assert.equal(original.status, 200);
+  assert.equal(original.body.scenarioReleaseId, first);
+  assert.deepEqual(original.body.scenarioPreparation, pinned);
+  assert.equal((await dispatch('GET', customerDetail, undefined, reviewer)).status, 403);
+  assert.equal((await dispatch('GET', professionalDetail)).status, 403);
+  assert.equal((await dispatch('GET', professionalDetail, undefined, reviewer)).status, 404);
+  assert.equal((await dispatch('GET', `${customerCase}?orgId=${otherOrgId}`,
+    undefined, otherCustomer, otherTenantId)).status, 404);
+
+  const peer = randomUUID();
+  await db.admin.transaction(tx => tx.query(`INSERT INTO carbon.org_grant (tenant_id, org_id, actor_id, role)
+    VALUES ($1, $2, $3, 'customer')`, [tenantId, orgId, peer]));
+  assert.equal((await dispatch('GET', customerDetail, undefined, peer)).status, 404);
+
+  const submitted = await dispatch('POST', `${customerCase}/submit`, {orgId, revision: created.body.revision});
+  assert.equal(submitted.status, 200);
+  const professional = await dispatch('GET', professionalDetail, undefined, reviewer);
+  assert.equal(professional.status, 200);
+  assert.equal(professional.body.scenarioReleaseId, first);
+  assert.deepEqual(professional.body.scenarioPreparation, pinned);
+
+  const manifests = [{title: '旧配置'}, {
+    catalog: {...manufacturing, preparation: {materials: ['   '], reportRequirements: ['不可展示']}}
+  }];
+  for (const [index, manifest] of manifests.entries()) {
+    const releaseId = await publish('case-preparation-unavailable', index + 1, manifest);
+    const caseWithoutPreparation = await create(releaseId);
+    assert.equal(caseWithoutPreparation.status, 201);
+    assert.equal(Object.hasOwn(caseWithoutPreparation.body, 'scenarioPreparation'), false);
+    const detail = await dispatch('GET', `/v1/customer/cases/${caseWithoutPreparation.body.id}?orgId=${orgId}`);
+    assert.equal(detail.status, 200);
+    assert.equal(Object.hasOwn(detail.body, 'scenarioPreparation'), false);
+  }
+});

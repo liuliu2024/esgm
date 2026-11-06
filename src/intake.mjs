@@ -40,6 +40,22 @@ function caseDetail({scope, ...task}) {
   return scope === null ? task : {...task, scope};
 }
 
+function catalogPreparation(catalog) {
+  const {materials, reportRequirements} = catalog?.preparation ?? {};
+  if ([materials, reportRequirements].every(lines => Array.isArray(lines) && lines.length &&
+      lines.every(line => typeof line === 'string' && line.trim()))) {
+    return {materials, reportRequirements};
+  }
+}
+
+function withScenarioPreparation(task, release) {
+  const title = release?.catalog?.title;
+  const preparation = catalogPreparation(release?.catalog);
+  return preparation && typeof title === 'string' && title.trim()
+    ? {...task, scenarioPreparation: {title, version: release.version, ...preparation}}
+    : task;
+}
+
 async function requireRole(tx, scope, orgId, role) {
   const result = await tx.query(`
     SELECT 1 FROM carbon.org_grant
@@ -567,11 +583,8 @@ export function createIntakeService(database, quarantine) {
         for (const {id, code, version, catalog} of rows) {
           if (!catalogFields.every(field => typeof catalog?.[field] === 'string' && catalog[field].trim())) continue;
           const details = Object.fromEntries(catalogFields.map(field => [field, catalog[field]]));
-          const {materials, reportRequirements} = catalog.preparation ?? {};
-          if ([materials, reportRequirements].every(lines => Array.isArray(lines) && lines.length &&
-              lines.every(line => typeof line === 'string' && line.trim()))) {
-            details.preparation = {materials, reportRequirements};
-          }
+          const preparation = catalogPreparation(catalog);
+          if (preparation) details.preparation = preparation;
           items.push({id, code, version, ...details, ruleStatus: 'needs_review'});
         }
         return {items};
@@ -581,10 +594,10 @@ export function createIntakeService(database, quarantine) {
     create(scope, input) {
       return inWorkspace(scope, async tx => {
         await requireRole(tx, scope, input.orgId, 'customer');
-        const scenario = await tx.query(`
-          SELECT 1 FROM carbon.scenario_release WHERE tenant_id = $1 AND id = $2
+        const {rows: [release]} = await tx.query(`
+          SELECT version, manifest->'catalog' AS catalog FROM carbon.scenario_release WHERE tenant_id = $1 AND id = $2
         `, [scope.tenantId, input.scenarioReleaseId]);
-        if (scenario.rows.length === 0) {
+        if (!release) {
           throw new CarbonError(404, 'SCENARIO_NOT_FOUND', '未找到可访问的场景版本。');
         }
         const result = await tx.query(`
@@ -593,12 +606,18 @@ export function createIntakeService(database, quarantine) {
           VALUES ($1, $2, $3, $4, $5, $6, $7)
           RETURNING ${caseDetailFields}
         `, [scope.tenantId, randomUUID(), input.orgId, input.scenarioReleaseId, scope.actorId, input.purpose, input.intakeScope]);
-        return caseDetail(result.rows[0]);
+        return withScenarioPreparation(caseDetail(result.rows[0]), release);
       });
     },
 
     read(scope, orgId, id, customerOnly) {
-      return inWorkspace(scope, tx => readVisibleCase(tx, scope, orgId, id, customerOnly));
+      return inWorkspace(scope, async tx => {
+        const task = await readVisibleCase(tx, scope, orgId, id, customerOnly);
+        const {rows: [release]} = await tx.query(`
+          SELECT version, manifest->'catalog' AS catalog FROM carbon.scenario_release WHERE tenant_id = $1 AND id = $2
+        `, [scope.tenantId, task.scenarioReleaseId]);
+        return withScenarioPreparation(task, release);
+      });
     },
 
     listCases(scope, orgId, customerOnly, limit, cursor) {
