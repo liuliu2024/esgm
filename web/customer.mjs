@@ -185,6 +185,83 @@ function reportActivitySource(caseId, item) {
   return details;
 }
 
+function reportReviewPanel(draft) {
+  const panel = document.createElement('section');
+  panel.className = 'report-review stack';
+  panel.dataset.reviewDraft = draft.draftId;
+  const heading = document.createElement('h5');
+  heading.textContent = '演示稿复核';
+  const status = document.createElement('p');
+  status.className = 'report-review-status';
+  status.setAttribute('role', 'status');
+  status.tabIndex = -1;
+  status.textContent = '正在读取复核状态…';
+  const reason = document.createElement('p');
+  reason.className = 'report-review-reason';
+  reason.hidden = true;
+  const error = document.createElement('p');
+  error.className = 'report-review-error';
+  error.setAttribute('role', 'alert');
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'report-review-submit';
+  button.textContent = '提交演示稿复核';
+  button.hidden = true;
+  panel.append(heading, status, reason, error, button);
+
+  const {caseId, draftId} = draft;
+  const path = `${base}/${caseId}/internal-report-drafts/${draftId}`;
+  const active = () => panel.isConnected && selected?.id === caseId;
+  const canSubmit = () => selected?.status === 'submitted' || selected?.status === 'approved';
+  let posting = false;
+  let submitted = false;
+
+  function showReview(review) {
+    submitted = true;
+    status.textContent = {submitted: '待复核', reviewed: '内部复核已完成', returned: '内部复核已退回'}[review.status];
+    reason.textContent = review.reason ? `退回原因 · ${review.reason}` : '';
+    reason.hidden = !review.reason;
+    error.textContent = '';
+    button.hidden = true;
+  }
+
+  panel.addEventListener('report-review-submitted', event => showReview(event.detail));
+  request(`${path}/review?orgId=${context.orgId}`).then(({review}) => {
+    if (active() && !submitted) showReview(review);
+  }).catch(failure => {
+    if (!active() || submitted) return;
+    if (failure.code === 'REPORT_REVIEW_NOT_FOUND') {
+      status.textContent = '未提交';
+      button.hidden = !canSubmit();
+      button.disabled = busy;
+    } else {
+      status.textContent = '';
+      error.textContent = failure.message;
+    }
+  });
+
+  button.addEventListener('click', async () => {
+    if (!active() || creating || !canSubmit() || submitted || posting || busy) return;
+    posting = true;
+    button.disabled = true;
+    error.textContent = '';
+    try {
+      const {review} = await request(`${path}/submit-review`, {orgId: context.orgId});
+      if (selected?.id !== caseId) return;
+      for (const instance of document.querySelectorAll(`[data-review-draft="${draftId}"]`)) {
+        instance.dispatchEvent(new CustomEvent('report-review-submitted', {detail: review}));
+      }
+      if (active() && !creating) status.focus();
+    } catch (failure) {
+      if (active()) error.textContent = failure.message;
+    } finally {
+      posting = false;
+      button.disabled = busy;
+    }
+  });
+  return panel;
+}
+
 function renderReport(container, draft, historical = false) {
   container.hidden = !draft;
   container.replaceChildren();
@@ -223,7 +300,7 @@ function renderReport(container, draft, historical = false) {
     row.append(label, reportActivitySource(draft.caseId, item));
     rows.append(row);
   }
-  container.append(rows);
+  container.append(rows, reportReviewPanel(draft));
 }
 
 function renderReportHistory() {
@@ -442,6 +519,7 @@ function updateCase(item) {
   selected = item;
   renderList();
   renderDetail();
+  if (reportHistoryView?.draft) renderReport(reportHistoryResult, reportHistoryView.draft, true);
 }
 
 async function loadPage(after) {

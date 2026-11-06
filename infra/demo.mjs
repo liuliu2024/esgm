@@ -56,6 +56,18 @@ try {
   assert.deepEqual(historical, draft);
   const submitted = await dispatch('customer', 'POST', `${casePath}/submit`,
     { orgId, revision: created.revision });
+  const draftPath = `${casePath}/internal-report-drafts/${draft.draftId}`;
+  const reviewQueue = `/v1/professional/cases/${created.id}/internal-report-drafts`;
+  const initialReports = await dispatch('reviewer', 'GET', `${reviewQueue}?orgId=${orgId}`);
+  assert.equal(initialReports.items.length, 0);
+  const reportSubmission = await dispatch('customer', 'POST', `${draftPath}/submit-review`, { orgId });
+  assert.equal(reportSubmission.review.status, 'submitted');
+  const reviewPath = `${reviewQueue}/${draft.draftId}/review`;
+  const reportDetail = await dispatch('reviewer', 'GET', `${reviewPath}?orgId=${orgId}`);
+  assert.deepEqual(reportDetail.draft, draft);
+  const reportDecision = await dispatch('reviewer', 'POST', reviewPath, { orgId, decision: 'reviewed' });
+  assert.equal(reportDecision.review.status, 'reviewed');
+  assert.equal(reportDecision.review.externalDeliveryEligible, false);
   const reviewed = await dispatch('reviewer', 'POST', `/v1/professional/cases/${created.id}/review`,
     { orgId, revision: submitted.revision, decision: 'approved' });
   const audit = await dispatch('admin', 'GET', `/v1/admin/organizations/${orgId}/audit`);
@@ -64,7 +76,8 @@ try {
   assert.deepEqual(audit.events.map(event => event.action), ['approved', 'submitted', 'created']);
   console.log(JSON.stringify({ file: { status: receipt.status, byteSize: receipt.byteSize, sha256: receipt.sha256 },
     report: { watermark: draft.report.watermark, templateVersion: draft.template.version,
-      formalReportEligible: draft.formalReportEligible, externalDeliveryEligible: draft.externalDeliveryEligible,
+      formalReportEligible: draft.formalReportEligible, externalDeliveryEligible: reportDecision.review.externalDeliveryEligible,
+      reviewStatus: reportDecision.review.status,
       reportingYear: scope.reportingYear, calculationMonth: draft.report.scope.from,
       frozenTotalKgCO2e: draft.report.summary.totalKgCO2e, originalElectricityKWh: originalSource.quantity,
       currentElectricityKWh: latest.quantity },

@@ -74,6 +74,34 @@
             <h3>未提交的退回理由</h3>
             <p id="preserved-reason-text"></p>
           </section>
+          <details id="report-review">
+            <summary>演示稿复核</summary>
+            <div class="stack">
+              <p id="report-review-list-status" role="status"></p>
+              <p id="report-review-list-error" role="alert"></p>
+              <ul id="report-review-list" class="task-list"></ul>
+              <button type="button" id="report-review-more" hidden>加载更多稿件</button>
+              <p id="report-review-status" role="status"></p>
+              <article id="report-review-draft" class="notice stack" hidden>
+                <h3 id="report-review-title" tabindex="-1"></h3>
+                <strong id="report-review-watermark"></strong>
+                <p id="report-review-summary"></p>
+                <p id="report-review-purpose"></p>
+                <dl id="report-review-scope" hidden></dl>
+                <ul id="report-review-items" class="history-list"></ul>
+                <p id="report-review-decision"></p>
+              </article>
+              <p id="report-review-error" role="alert"></p>
+              <form id="report-review-form" hidden>
+                <label for="report-review-reason">退回稿件原因</label>
+                <textarea id="report-review-reason" maxlength="500" required></textarea>
+                <div class="actions">
+                  <button class="primary" type="button" id="report-review-approve">标记演示复核通过</button>
+                  <button type="submit" id="report-review-return">退回演示稿</button>
+                </div>
+              </form>
+            </div>
+          </details>
           <details>
             <summary>办理历史</summary>
             <div id="history"></div>

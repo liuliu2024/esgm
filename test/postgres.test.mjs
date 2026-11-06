@@ -165,6 +165,28 @@ test('PostgreSQL 17 connection pool isolates context and resolves competing revi
     const visible = await dispatch(reviewer, 'GET', `/v1/professional/cases/${id}?orgId=${orgId}`);
     assert.equal(visible.status, 200);
     assert.deepEqual(visible.body.scope, scope);
+    const reportReviewPath = `/v1/professional/cases/${id}/internal-report-drafts/${draft.draftId}/review`;
+    const professionalDrafts = `/v1/professional/cases/${id}/internal-report-drafts?orgId=${orgId}`;
+    assert.equal((await dispatch(reviewer, 'GET', `${reportReviewPath}?orgId=${orgId}`)).status, 404);
+    assert.deepEqual(await dispatch(reviewer, 'GET', professionalDrafts), { status: 200, body: {items: [], nextCursor: null} });
+    const reportSubmissionPath = `${drafts}/${draft.draftId}/submit-review`;
+    const reportSubmitted = await dispatch(customer, 'POST', reportSubmissionPath, { orgId });
+    assert.equal(reportSubmitted.status, 201);
+    assert.equal(reportSubmitted.body.review.status, 'submitted');
+    const professionalList = await dispatch(reviewer, 'GET', professionalDrafts);
+    assert.equal(professionalList.status, 200);
+    assert.deepEqual(professionalList.body.items.map(item => [item.draftId, item.reviewStatus]), [[draft.draftId, 'submitted']]);
+    const reportVisible = await dispatch(reviewer, 'GET', `${reportReviewPath}?orgId=${orgId}`);
+    assert.equal(reportVisible.status, 200);
+    assert.deepEqual(reportVisible.body.draft, draft);
+    const reportDecisions = await Promise.all([
+      dispatch(reviewer, 'POST', reportReviewPath, { orgId, decision: 'reviewed' }),
+      dispatch(reviewer, 'POST', reportReviewPath, { orgId, decision: 'returned', reason: '核对申报期间' })
+    ]);
+    assert.deepEqual(reportDecisions.map(result => result.status).sort(), [200, 409]);
+    const reportReviewed = reportDecisions.find(result => result.status === 200);
+    assert.ok(['reviewed', 'returned'].includes(reportReviewed.body.review.status));
+    assert.equal(reportReviewed.body.review.externalDeliveryEligible, false);
 
     if (evidenceReference) {
       const refs = await dispatch(reviewer, 'GET', `/v1/professional/cases/${id}/revisions/2/evidence?orgId=${orgId}`);

@@ -23,8 +23,10 @@ const routes = {
   calculationPreview: /^\/v1\/customer\/cases\/([^/]+)\/calculation-preview$/,
   calculationSnapshots: /^\/v1\/customer\/cases\/([^/]+)\/calculation-snapshots$/,
   calculationSnapshot: /^\/v1\/customer\/cases\/([^/]+)\/calculation-snapshots\/([^/]+)$/,
-  internalReportDrafts: /^\/v1\/customer\/cases\/([^/]+)\/internal-report-drafts$/,
+  internalReportDrafts: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/internal-report-drafts$/,
   internalReportDraft: /^\/v1\/customer\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)$/,
+  submitInternalReportReview: /^\/v1\/customer\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)\/submit-review$/,
+  internalReportReview: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)\/review$/,
   submit: /^\/v1\/customer\/cases\/([^/]+)\/submit$/,
   resubmit: /^\/v1\/customer\/cases\/([^/]+)\/resubmit$/,
   review: /^\/v1\/professional\/cases\/([^/]+)\/review$/,
@@ -185,6 +187,10 @@ function errorResponse(error) {
   if (error?.code === '23514' && error.constraint === 'submission_evidence_available') {
     return {status: 409, body: {error: {code: 'EVIDENCE_UNAVAILABLE', message: '所选材料无法用于本次提交，请检查材料后重试。'}}};
   }
+  if (error?.code === '23514' && (error.constraint === 'internal_report_review_case_state'
+    || error.constraint === 'internal_report_review_transition')) {
+    return {status: 409, body: {error: {code: 'REPORT_REVIEW_CONFLICT', message: '任务或演示稿当前不能完成该复核操作。'}}};
+  }
   if (error?.code === '23514') {
     const importErrors = {
       activity_import_not_found: [404, 'IMPORT_NOT_FOUND', '未找到可访问的导入批次。'],
@@ -235,11 +241,26 @@ export function createCarbonApi(database, {quarantine} = {}) {
               scope, orgId, caseId, evidenceId, mediaType, bytes)};
           }
           queryFields(query, []);
+          const submitReportReview = routes.submitInternalReportReview.exec(path);
+          if (submitReportReview) {
+            const input = commandBody(request.body, ['orgId']);
+            return await intake.submitInternalReportReview(scope,
+              uuid(input.orgId, '组织'), uuid(submitReportReview[1], '任务'), uuid(submitReportReview[2], '稿件'));
+          }
+          const reportReview = routes.internalReportReview.exec(path);
+          if (reportReview?.[1] === 'professional') {
+            const input = commandBody(request.body, ['orgId', 'decision'], ['reason']);
+            if (input.decision !== 'reviewed' && input.decision !== 'returned') badRequest('请选择完成复核或退回。');
+            const reason = input.decision === 'returned' || Object.hasOwn(input, 'reason')
+              ? requiredText(input.reason, '复核意见') : null;
+            return {status: 200, body: await intake.decideInternalReportReview(scope,
+              uuid(input.orgId, '组织'), uuid(reportReview[2], '任务'), uuid(reportReview[3], '稿件'), input.decision, reason)};
+          }
           const internalReportDrafts = routes.internalReportDrafts.exec(path);
-          if (internalReportDrafts) {
+          if (internalReportDrafts?.[1] === 'customer') {
             const input = commandBody(request.body, ['orgId', 'snapshotId']);
             return await intake.createInternalReportDraft(scope,
-              uuid(input.orgId, '组织'), uuid(internalReportDrafts[1], '任务'), uuid(input.snapshotId, '快照'));
+              uuid(input.orgId, '组织'), uuid(internalReportDrafts[2], '任务'), uuid(input.snapshotId, '快照'));
           }
           const calculationSnapshots = routes.calculationSnapshots.exec(path);
           if (calculationSnapshots) {
@@ -310,6 +331,13 @@ export function createCarbonApi(database, {quarantine} = {}) {
         }
 
         if (method === 'GET') {
+          const reportReview = routes.internalReportReview.exec(path);
+          if (reportReview) {
+            queryFields(query, ['orgId']);
+            const [, role, caseId, draftId] = reportReview;
+            return {status: 200, body: await intake.readInternalReportReview(scope,
+              uuid(query.get('orgId'), '组织'), uuid(caseId, '任务'), uuid(draftId, '稿件'), role === 'customer')};
+          }
           const activities = routes.activities.exec(path);
           if (activities) {
             queryFields(query, ['orgId', 'period', 'source', 'revision']);
@@ -327,8 +355,8 @@ export function createCarbonApi(database, {quarantine} = {}) {
             queryFields(query, ['orgId', 'limit', 'cursor']);
             const cursor = query.get('cursor');
             return {status: 200, body: await intake.listInternalReportDrafts(scope,
-              uuid(query.get('orgId'), '组织'), uuid(internalReportDrafts[1], '任务'), pageLimit(query),
-              cursor === null ? null : uuid(cursor, '稿件游标'))};
+              uuid(query.get('orgId'), '组织'), uuid(internalReportDrafts[2], '任务'), pageLimit(query),
+              cursor === null ? null : uuid(cursor, '稿件游标'), internalReportDrafts[1] === 'customer')};
           }
           const internalReportDraft = routes.internalReportDraft.exec(path);
           if (internalReportDraft) {

@@ -24,6 +24,9 @@ const snapshotSchemaVersion = 1;
 const snapshotFields = `id AS "snapshotId", case_id AS "caseId", created_at AS "createdAt",
   schema_version AS "schemaVersion", payload AS result`;
 const draftFields = `id AS "draftId", created_at AS "createdAt", payload`;
+const reportReviewFields = `draft_id AS "draftId", case_id AS "caseId", status,
+  submitted_by AS "submittedBy", submitted_at AS "submittedAt", reviewed_by AS "reviewedBy",
+  reviewed_at AS "reviewedAt", reason`;
 
 function accessDenied() {
   return new CarbonError(403, 'ACCESS_DENIED', '你没有该组织的操作权限。');
@@ -215,6 +218,30 @@ function draftResponse({draftId, createdAt, payload}) {
   return {draftId, createdAt: new Date(createdAt).toISOString(), ...payload};
 }
 
+async function readDraft(tx, key) {
+  const {rows: [draft]} = await tx.query(`
+    SELECT ${draftFields} FROM carbon.internal_report_draft
+    WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND id = $4
+  `, key);
+  if (!draft) throw new CarbonError(404, 'REPORT_DRAFT_NOT_FOUND', '未找到可访问的内部演示稿。');
+  return draftResponse(draft);
+}
+
+async function findReportReview(tx, key) {
+  const {rows: [review]} = await tx.query(`
+    SELECT ${reportReviewFields} FROM carbon.internal_report_review
+    WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND draft_id = $4
+  `, key);
+  return review;
+}
+
+function reportReviewResponse(review) {
+  if (!review) throw new CarbonError(404, 'REPORT_REVIEW_NOT_FOUND', '未找到该演示稿的复核记录。');
+  return {...review, submittedAt: new Date(review.submittedAt).toISOString(),
+    reviewedAt: review.reviewedAt === null ? null : new Date(review.reviewedAt).toISOString(),
+    formalReportEligible: false, externalDeliveryEligible: false};
+}
+
 export function createIntakeService(database, quarantine) {
   function inWorkspace(scope, command) {
     return database.transaction(async tx => {
@@ -347,23 +374,31 @@ export function createIntakeService(database, quarantine) {
       });
     },
 
-    listInternalReportDrafts(scope, orgId, caseId, limit, cursor) {
+    listInternalReportDrafts(scope, orgId, caseId, limit, cursor, customerOnly) {
       return inWorkspace(scope, async tx => {
-        await readVisibleCase(tx, scope, orgId, caseId, true);
+        const task = await readVisibleCase(tx, scope, orgId, caseId, customerOnly);
+        if (!customerOnly && task.createdBy === scope.actorId) {
+          throw new CarbonError(403, 'SELF_REVIEW_FORBIDDEN', '发起人不能复核自己的任务。');
+        }
         const {rows} = await tx.query(`
           SELECT draft.id AS "draftId", draft.snapshot_id AS "snapshotId", draft.created_at AS "createdAt",
             draft.payload#>>'{report,scope,from}' AS "from", draft.payload#>>'{report,scope,to}' AS "to",
-            draft.template_version AS "templateVersion"
+            draft.template_version AS "templateVersion", review.status AS "reviewStatus"
           FROM carbon.internal_report_draft AS draft
+          LEFT JOIN carbon.internal_report_review AS review
+            ON NOT $6::boolean AND review.tenant_id = draft.tenant_id AND review.org_id = draft.org_id
+            AND review.case_id = draft.case_id AND review.draft_id = draft.id
           LEFT JOIN carbon.internal_report_draft AS anchor
             ON anchor.tenant_id = draft.tenant_id AND anchor.org_id = draft.org_id
             AND anchor.case_id = draft.case_id AND anchor.id = $4::uuid
           WHERE draft.tenant_id = $1 AND draft.org_id = $2 AND draft.case_id = $3
+            AND ($6::boolean OR review.draft_id IS NOT NULL)
             AND ($4::uuid IS NULL OR (draft.created_at, draft.id) < (anchor.created_at, anchor.id))
           ORDER BY draft.created_at DESC, draft.id DESC
           LIMIT $5
-        `, [scope.tenantId, orgId, caseId, cursor, limit + 1]);
-        const items = rows.slice(0, limit).map(item => ({...item, createdAt: new Date(item.createdAt).toISOString()}));
+        `, [scope.tenantId, orgId, caseId, cursor, limit + 1, customerOnly]);
+        const items = rows.slice(0, limit).map(({reviewStatus, ...item}) => ({...item,
+          createdAt: new Date(item.createdAt).toISOString(), ...(!customerOnly && {reviewStatus})}));
         return {items, nextCursor: rows.length > limit ? items.at(-1).draftId : null};
       });
     },
@@ -371,12 +406,57 @@ export function createIntakeService(database, quarantine) {
     readInternalReportDraft(scope, orgId, caseId, draftId) {
       return inWorkspace(scope, async tx => {
         await readVisibleCase(tx, scope, orgId, caseId, true);
-        const {rows: [draft]} = await tx.query(`
-          SELECT ${draftFields} FROM carbon.internal_report_draft
-          WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND id = $4
-        `, [scope.tenantId, orgId, caseId, draftId]);
-        if (!draft) throw new CarbonError(404, 'REPORT_DRAFT_NOT_FOUND', '未找到可访问的内部演示稿。');
-        return draftResponse(draft);
+        return readDraft(tx, [scope.tenantId, orgId, caseId, draftId]);
+      });
+    },
+
+    submitInternalReportReview(scope, orgId, caseId, draftId) {
+      return inWorkspace(scope, async tx => {
+        await readVisibleCase(tx, scope, orgId, caseId, true);
+        const key = [scope.tenantId, orgId, caseId, draftId];
+        const existing = await findReportReview(tx, key);
+        if (existing) return {status: 200, body: {review: reportReviewResponse(existing)}};
+        await readDraft(tx, key);
+        const {rows: [created]} = await tx.query(`
+          INSERT INTO carbon.internal_report_review
+            (tenant_id, org_id, case_id, draft_id, submitted_by, submitted_request_id)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (tenant_id, org_id, case_id, draft_id) DO NOTHING
+          RETURNING ${reportReviewFields}
+        `, [...key, scope.actorId, scope.requestId]);
+        return {status: created ? 201 : 200, body: {review: reportReviewResponse(created ?? await findReportReview(tx, key))}};
+      });
+    },
+
+    readInternalReportReview(scope, orgId, caseId, draftId, customerOnly) {
+      return inWorkspace(scope, async tx => {
+        const task = await readVisibleCase(tx, scope, orgId, caseId, customerOnly);
+        if (!customerOnly && task.createdBy === scope.actorId) {
+          throw new CarbonError(403, 'SELF_REVIEW_FORBIDDEN', '发起人不能复核自己的任务。');
+        }
+        const key = [scope.tenantId, orgId, caseId, draftId];
+        const review = reportReviewResponse(await findReportReview(tx, key));
+        return customerOnly ? {review} : {review, draft: await readDraft(tx, key)};
+      });
+    },
+
+    decideInternalReportReview(scope, orgId, caseId, draftId, decision, reason) {
+      return inWorkspace(scope, async tx => {
+        const task = await readVisibleCase(tx, scope, orgId, caseId, false);
+        if (task.createdBy === scope.actorId) {
+          throw new CarbonError(403, 'SELF_REVIEW_FORBIDDEN', '发起人不能复核自己的任务。');
+        }
+        const key = [scope.tenantId, orgId, caseId, draftId];
+        const {rows: [review]} = await tx.query(`
+          UPDATE carbon.internal_report_review
+          SET status = $5, reviewed_by = $6, reviewed_request_id = $7, reason = $8
+          WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND draft_id = $4 AND status = 'submitted'
+          RETURNING ${reportReviewFields}
+        `, [...key, decision, scope.actorId, scope.requestId, reason]);
+        if (!review && await findReportReview(tx, key)) {
+          throw new CarbonError(409, 'REPORT_REVIEW_CONFLICT', '该演示稿已有复核结论。');
+        }
+        return {review: reportReviewResponse(review)};
       });
     },
 

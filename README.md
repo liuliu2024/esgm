@@ -65,6 +65,10 @@ npm test
 | 客户 | `POST /v1/customer/cases/:id/internal-report-drafts` | `orgId, snapshotId`，从同任务的冻结合成快照生成站内结构化演示稿 |
 | 客户 | `GET /v1/customer/cases/:id/internal-report-drafts` | `orgId`，可选 `limit, cursor`，读取本人任务的历史稿件索引 |
 | 客户 | `GET /v1/customer/cases/:id/internal-report-drafts/:draftId` | `orgId`，读取原稿版本及来源，合成演示稿禁止外发 |
+| 客户 | `POST /v1/customer/cases/:id/internal-report-drafts/:draftId/submit-review` | `orgId`，提交指定冻结演示稿，重复提交返回原记录 |
+| 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/internal-report-drafts/:draftId/review` | `orgId`，读取复核状态。专业端另返回该版冻结稿 |
+| 专业复核人 | `GET /v1/professional/cases/:id/internal-report-drafts` | `orgId`，可选 `limit, cursor`，查找已提交复核的版本 |
+| 专业复核人 | `POST /v1/professional/cases/:id/internal-report-drafts/:draftId/review` | `orgId, decision, reason?`，独立记录一次内部演示结论。退回需填写理由 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/evidence` | `orgId`，返回有权查看的材料清单 |
 | 客户或专业复核人 | `GET /v1/{customer|professional}/cases/:id/revisions/:revision/evidence` | `orgId`，返回已提交修订所引用的材料和文件摘要 |
 | 专业复核人 | `GET /v1/professional/cases/:id` | 查询参数 `orgId` |

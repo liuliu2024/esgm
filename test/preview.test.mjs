@@ -101,6 +101,15 @@ test('three preview entries use the same intake and review workflow', async () =
     assert.equal(oversized.status, 413);
     const submitted = await post(customer + '/submit', { orgId, revision: created.revision });
     assert.deepEqual((await read(`${professional}?orgId=${orgId}`)).scope, scope);
+    const professionalDrafts = `${professional}/internal-report-drafts`;
+    assert.deepEqual((await read(`${professionalDrafts}?orgId=${orgId}`)).items, []);
+    const reportSubmission = await post(`${customer}/internal-report-drafts/${draft.draftId}/submit-review`, { orgId }, 201);
+    assert.equal(reportSubmission.review.status, 'submitted');
+    const reportPath = `${professionalDrafts}/${draft.draftId}/review`;
+    assert.deepEqual((await read(`${reportPath}?orgId=${orgId}`)).draft, draft);
+    const reportDecision = await post(reportPath, { orgId, decision: 'reviewed' });
+    assert.equal(reportDecision.review.status, 'reviewed');
+    assert.equal(reportDecision.review.externalDeliveryEligible, false);
     const returned = await post(professional + '/review', {
       orgId, revision: submitted.revision, decision: 'returned', reason: '补充报告期间'
     });
