@@ -27,8 +27,8 @@
     .scope-toggle { display: flex; align-items: center; gap: 8px; }
     .scope-toggle input { min-height: auto; }
     #intake-scope-fields { min-width: 0; margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); }
-    #case-intake-scope dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
-    #case-intake-scope dd { margin: 0; overflow-wrap: anywhere; }
+    .scope-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+    .scope-grid dd { margin: 0; overflow-wrap: anywhere; }
   </style>
   <script type="module" src="/customer.mjs"></script>
 </head>
@@ -102,7 +102,7 @@
           <p id="case-revision" class="muted"></p>
           <section id="case-intake-scope" class="stack" aria-labelledby="case-intake-scope-title" hidden>
             <h3 id="case-intake-scope-title">申报范围</h3>
-            <dl>
+            <dl class="scope-grid">
               <dt>报告对象</dt><dd id="case-scope-subject"></dd>
               <dt>地区</dt><dd id="case-scope-jurisdiction"></dd>
               <dt>报告年度</dt><dd id="case-scope-year"></dd>

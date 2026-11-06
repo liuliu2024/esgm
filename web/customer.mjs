@@ -193,8 +193,27 @@ function renderReport(container, draft, historical = false) {
   heading.textContent = historical ? `历史演示稿 · ${draft.report.title}` : draft.report.title;
   const watermark = document.createElement('strong');
   watermark.textContent = draft.report.watermark;
+  const {from, to, declaredScope} = draft.report.scope;
   const summary = document.createElement('p');
-  summary.textContent = `${draft.report.scope.from} 至 ${draft.report.scope.to} · ${draft.report.summary.totalKgCO2e} kgCO₂e（${draft.report.summary.totalTCO2e} tCO₂e）`;
+  summary.textContent = `${declaredScope ? '核算期间 ' : ''}${from} 至 ${to} · ${draft.report.summary.totalKgCO2e} kgCO₂e（${draft.report.summary.totalTCO2e} tCO₂e）`;
+  container.append(heading, watermark, summary);
+  if (declaredScope) {
+    const scope = document.createElement('dl');
+    scope.className = 'scope-grid report-declared-scope';
+    for (const [label, value] of [
+      ['报告对象', `${subjectTypes[declaredScope.subjectType]} · ${declaredScope.subjectName}`],
+      ['地区', declaredScope.jurisdiction],
+      ['申报年度', declaredScope.reportingYear],
+      ['交付对象', declaredScope.recipient]
+    ]) {
+      const term = document.createElement('dt');
+      term.textContent = label;
+      const definition = document.createElement('dd');
+      definition.textContent = value;
+      scope.append(term, definition);
+    }
+    container.append(scope);
+  }
   const rows = document.createElement('ul');
   rows.className = 'history-list';
   for (const item of draft.report.items) {
@@ -204,7 +223,7 @@ function renderReport(container, draft, historical = false) {
     row.append(label, reportActivitySource(draft.caseId, item));
     rows.append(row);
   }
-  container.append(heading, watermark, summary, rows);
+  container.append(rows);
 }
 
 function renderReportHistory() {
