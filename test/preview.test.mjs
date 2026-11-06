@@ -39,6 +39,16 @@ test('sample preview starts with a frozen report in the independent review queue
   assert.equal(electricity.totalKg, '577.7');
   assert.equal(electricity.outputUnit, 'kgCO2e');
   assert.deepEqual(electricity.excludedSources, ['natural_gas']);
+  const frozenTrial = await fetch(preview.origin + `/v1/customer/cases/${trial.id}/revisions/${trial.revision}/internal-report-drafts`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orgId, from: '2024-01', to: '2024-03' })
+  });
+  assert.equal(frozenTrial.status, 201);
+  const controlledDraft = await frozenTrial.json();
+  assert.equal(controlledDraft.mode, 'controlled');
+  assert.equal(controlledDraft.report.summary.knownSubtotalKg, '577.7');
+  assert.equal(controlledDraft.report.summary.totalKg, null);
+  assert.equal(controlledDraft.externalDeliveryEligible, false);
   assert.equal(task.status, 'submitted');
   const path = `/v1/customer/cases/${task.id}/internal-report-drafts`;
   const { items: [draft] } = await get(`${path}?orgId=${orgId}`);
@@ -72,7 +82,7 @@ test('three preview entries use the same intake and review workflow', async () =
       assert.doesNotMatch(html, /演示角色|架构与 AI/);
       if (path !== '/admin') assert.match(html, /材料清单/);
       if (path === '/customer') {
-        assert.match(html, /历史演示稿/);
+        assert.match(html, /历史稿件/);
         assert.match(html, /参考资料/);
         assert.match(html, /申报范围/);
         assert.match(html, /id="activity-file" type="file" accept="\.csv,text\/csv"/);

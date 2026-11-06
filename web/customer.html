@@ -168,7 +168,7 @@
             <ul id="case-revision-evidence-items" class="history-list" hidden></ul>
           </details>
           <details id="activity-workflow">
-            <summary>活动数据与演示报告</summary>
+            <summary>活动数据与报告</summary>
             <section class="workflow-stage stack" aria-labelledby="import-title">
               <h3 id="import-title">1. 预检与入账</h3>
               <form id="activity-import">
@@ -190,13 +190,16 @@
               </div>
             </section>
             <section class="workflow-stage stack" aria-labelledby="calc-title">
-              <h3 id="calc-title">2. 合成因子核算预览</h3>
+              <h3 id="calc-title">2. 核算期间</h3>
               <form id="calc-form">
                 <div class="month-range">
                   <label>起始月 <input id="calc-from" type="month" required></label>
                   <label>结束月 <input id="calc-to" type="month" required></label>
                 </div>
-                <button id="calc-preview" type="submit">查看核算</button>
+                <div class="actions">
+                  <button id="calc-preview" type="submit">查看合成因子预览</button>
+                  <button id="controlled-report-generate" class="primary" type="submit" hidden>生成外购电力内部管理稿</button>
+                </div>
               </form>
               <p id="calc-status" role="status"></p>
               <p id="calc-error" role="alert"></p>
@@ -209,13 +212,13 @@
             </section>
           </details>
           <details id="report-history">
-            <summary>历史演示稿</summary>
-            <section class="workflow-stage stack" aria-label="历史演示稿">
+            <summary>历史稿件</summary>
+            <section class="workflow-stage stack" aria-label="历史稿件">
               <p id="report-history-state" role="status"></p>
               <p id="report-history-error" role="alert"></p>
               <ul id="report-history-list" class="task-list" hidden></ul>
               <div class="actions">
-                <button id="report-history-more" type="button" hidden>加载更多演示稿</button>
+                <button id="report-history-more" type="button" hidden>加载更多稿件</button>
                 <button id="report-history-retry" type="button" hidden>重试</button>
               </div>
               <p id="report-history-detail-state" role="status"></p>

@@ -25,6 +25,7 @@ const factorReferenceFields = `factor_id AS "factorId", version, accounting_basi
   source_title AS "sourceTitle", source_url AS "sourceUrl", source_locator AS "sourceLocator", usage_note AS "usageNote"`;
 const activityTemplate = 'activity-csv-v1';
 const snapshotSchemaVersion = 1;
+const controlledElectricityModel = {id: 'submitted-electricity', version: 1};
 const snapshotFields = `id AS "snapshotId", case_id AS "caseId", created_at AS "createdAt",
   schema_version AS "schemaVersion", payload AS result`;
 const draftFields = `id AS "draftId", created_at AS "createdAt", payload`;
@@ -79,9 +80,9 @@ async function readCase(tx, scope, orgId, id, customerOnly = false, lock = false
   return caseDetail(result.rows[0]);
 }
 
-async function readVisibleCase(tx, scope, orgId, id, customerOnly) {
+async function readVisibleCase(tx, scope, orgId, id, customerOnly, lock = false) {
   await requireRole(tx, scope, orgId, customerOnly ? 'customer' : 'reviewer');
-  const result = await readCase(tx, scope, orgId, id, customerOnly);
+  const result = await readCase(tx, scope, orgId, id, customerOnly, lock);
   if (!customerOnly && result.status === 'draft') throw caseMissing();
   return result;
 }
@@ -294,8 +295,68 @@ async function calculateSubmittedElectricity(tx, key, from, to, factor) {
   };
 }
 
+async function readSubmissionCalculation(tx, key, from, to) {
+  const [, , caseId, submissionRevision] = key;
+  const {rows: [submission]} = await tx.query(`
+    SELECT capture.submission_revision IS NOT NULL AS captured
+    FROM carbon.case_submission AS submission
+    LEFT JOIN carbon.case_submission_activity_capture AS capture
+      ON (capture.tenant_id, capture.org_id, capture.case_id, capture.submission_revision)
+       = (submission.tenant_id, submission.org_id, submission.case_id, submission.revision)
+    WHERE (submission.tenant_id, submission.org_id, submission.case_id, submission.revision) = ($1, $2, $3, $4)
+  `, key);
+  if (!submission) throw new CarbonError(404, 'REVISION_NOT_FOUND', '未找到该任务的提交版本。');
+  if (!submission.captured) {
+    throw new CarbonError(409, 'CALCULATION_INPUT_UNAVAILABLE', '该版本没有固定活动数据，请使用重新提交的版本。');
+  }
+  const stored = await readStoredFactorDecision(tx, key);
+  const factorDecision = stored?.decision ?? null;
+  const result = await calculateSubmittedElectricity(tx, key, from, to, factorDecision?.factor ?? null);
+  return {caseId, submissionRevision, from, to, mode: 'controlled', scope: 'purchased_electricity',
+    formalReportEligible: false, externalDeliveryEligible: false, model: controlledElectricityModel, factorDecision, ...result};
+}
+
+async function saveSnapshot(tx, scope, key, result, inputs) {
+  const fingerprint = createHash('sha256').update(JSON.stringify(inputs)).digest('hex');
+  const {rows: [created]} = await tx.query(`
+    INSERT INTO carbon.calculation_snapshot (tenant_id, org_id, case_id, id, created_by, request_id,
+      schema_version, from_period, to_period, input_fingerprint, payload, submission_revision)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    ON CONFLICT (tenant_id, org_id, case_id, input_fingerprint) DO NOTHING
+    RETURNING ${snapshotFields}
+  `, [...key, randomUUID(), scope.actorId, scope.requestId, snapshotSchemaVersion,
+    `${result.from}-01`, `${result.to}-01`, fingerprint, JSON.stringify(result), result.submissionRevision ?? null]);
+  if (created) return {status: 201, body: {...created, createdAt: new Date(created.createdAt).toISOString()}};
+
+  const {rows: [existing]} = await tx.query(`
+    SELECT ${snapshotFields} FROM carbon.calculation_snapshot
+    WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND input_fingerprint = $4
+  `, [...key, fingerprint]);
+  return {status: 200, body: {...existing, createdAt: new Date(existing.createdAt).toISOString()}};
+}
+
 function draftResponse({draftId, createdAt, payload}) {
   return {draftId, createdAt: new Date(createdAt).toISOString(), ...payload};
+}
+
+async function saveDraft(tx, scope, key, payload) {
+  const {snapshotId, template} = payload;
+  const draftKey = [...key, snapshotId, template.id, template.version];
+  const {rows: [created]} = await tx.query(`
+    INSERT INTO carbon.internal_report_draft
+      (tenant_id, org_id, case_id, snapshot_id, template_id, template_version, id, created_by, request_id, payload)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    ON CONFLICT (tenant_id, org_id, case_id, snapshot_id, template_id, template_version) DO NOTHING
+    RETURNING ${draftFields}
+  `, [...draftKey, randomUUID(), scope.actorId, scope.requestId, JSON.stringify(payload)]);
+  if (created) return {status: 201, body: draftResponse(created)};
+
+  const {rows: [existing]} = await tx.query(`
+    SELECT ${draftFields} FROM carbon.internal_report_draft
+    WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND snapshot_id = $4
+      AND template_id = $5 AND template_version = $6
+  `, draftKey);
+  return {status: 200, body: draftResponse(existing)};
 }
 
 async function readDraft(tx, key) {
@@ -303,7 +364,7 @@ async function readDraft(tx, key) {
     SELECT ${draftFields} FROM carbon.internal_report_draft
     WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND id = $4
   `, key);
-  if (!draft) throw new CarbonError(404, 'REPORT_DRAFT_NOT_FOUND', '未找到可访问的内部演示稿。');
+  if (!draft) throw new CarbonError(404, 'REPORT_DRAFT_NOT_FOUND', '未找到可访问的内部报告稿。');
   return draftResponse(draft);
 }
 
@@ -316,7 +377,7 @@ async function findReportReview(tx, key) {
 }
 
 function reportReviewResponse(review) {
-  if (!review) throw new CarbonError(404, 'REPORT_REVIEW_NOT_FOUND', '未找到该演示稿的复核记录。');
+  if (!review) throw new CarbonError(404, 'REPORT_REVIEW_NOT_FOUND', '未找到该报告稿的复核记录。');
   return {...review, submittedAt: new Date(review.submittedAt).toISOString(),
     reviewedAt: review.reviewedAt === null ? null : new Date(review.reviewedAt).toISOString(),
     formalReportEligible: false, externalDeliveryEligible: false};
@@ -394,23 +455,7 @@ export function createIntakeService(database, quarantine) {
         const model = result.model;
         const inputs = [snapshotSchemaVersion, from, to, model.id, model.version, model.factorSetId, model.factorSetVersion,
           result.items.map(item => [item.period, item.source, item.lineage.activityRevision])];
-        const fingerprint = createHash('sha256').update(JSON.stringify(inputs)).digest('hex');
-        const key = [scope.tenantId, orgId, caseId];
-        const {rows: [created]} = await tx.query(`
-          INSERT INTO carbon.calculation_snapshot (tenant_id, org_id, case_id, id, created_by, request_id,
-            schema_version, from_period, to_period, input_fingerprint, payload)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-          ON CONFLICT (tenant_id, org_id, case_id, input_fingerprint) DO NOTHING
-          RETURNING ${snapshotFields}
-        `, [...key, randomUUID(), scope.actorId, scope.requestId, snapshotSchemaVersion,
-          `${from}-01`, `${to}-01`, fingerprint, JSON.stringify(result)]);
-        if (created) return {status: 201, body: {...created, createdAt: new Date(created.createdAt).toISOString()}};
-
-        const {rows: [existing]} = await tx.query(`
-          SELECT ${snapshotFields} FROM carbon.calculation_snapshot
-          WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND input_fingerprint = $4
-        `, [...key, fingerprint]);
-        return {status: 200, body: {...existing, createdAt: new Date(existing.createdAt).toISOString()}};
+        return saveSnapshot(tx, scope, [scope.tenantId, orgId, caseId], result, inputs);
       });
     },
 
@@ -451,22 +496,43 @@ export function createIntakeService(database, quarantine) {
             ]
           }
         };
-        const key = [scope.tenantId, orgId, caseId, snapshotId, template.id, template.version];
-        const {rows: [created]} = await tx.query(`
-          INSERT INTO carbon.internal_report_draft
-            (tenant_id, org_id, case_id, snapshot_id, template_id, template_version, id, created_by, request_id, payload)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-          ON CONFLICT (tenant_id, org_id, case_id, snapshot_id, template_id, template_version) DO NOTHING
-          RETURNING ${draftFields}
-        `, [...key, randomUUID(), scope.actorId, scope.requestId, JSON.stringify(payload)]);
-        if (created) return {status: 201, body: draftResponse(created)};
+        return saveDraft(tx, scope, [scope.tenantId, orgId, caseId], payload);
+      });
+    },
 
-        const {rows: [existing]} = await tx.query(`
-          SELECT ${draftFields} FROM carbon.internal_report_draft
-          WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND snapshot_id = $4
-            AND template_id = $5 AND template_version = $6
-        `, key);
-        return {status: 200, body: draftResponse(existing)};
+    createControlledInternalReportDraft(scope, orgId, caseId, submissionRevision, from, to) {
+      return inWorkspace(scope, async tx => {
+        const task = await readVisibleCase(tx, scope, orgId, caseId, true, true);
+        const currentSubmission = task.status === 'approved' ? task.revision - 1 : task.revision;
+        if (!['submitted', 'approved'].includes(task.status) || currentSubmission !== submissionRevision) {
+          throw new CarbonError(409, 'REPORT_DRAFT_REVISION_CONFLICT', '请选择当前有效的提交版本生成报告。');
+        }
+        const key = [scope.tenantId, orgId, caseId];
+        const result = await readSubmissionCalculation(tx, [...key, submissionRevision], from, to);
+        if (!result.coverage.availableSlots) {
+          throw new CarbonError(409, 'REPORT_DRAFT_SOURCE_UNSUPPORTED', '所选期间没有可试算的外购电力。请核对活动数据、因子年份和月份。');
+        }
+        const {factorId, version} = result.factorDecision.factor;
+        const inputs = [snapshotSchemaVersion, result.model.id, result.model.version, submissionRevision, from, to, factorId, version];
+        const {body: snapshot} = await saveSnapshot(tx, scope, key, result, inputs);
+        const {model, factorDecision, coverage, outputUnit, knownSubtotalKg, totalKg, totalT, items, excludedSources} = snapshot.result;
+        const template = {id: 'internal-management-electricity', version: 1, locale: 'zh-CN'};
+        return saveDraft(tx, scope, key, {
+          caseId, snapshotId: snapshot.snapshotId, status: 'draft', mode: 'controlled',
+          formalReportEligible: false, externalDeliveryEligible: false, template,
+          report: {
+            title: '外购电力内部管理报告', watermark: '内部管理｜待授权交付',
+            scope: {caseId, from, to, purpose: task.purpose, submissionRevision, snapshotCreatedAt: snapshot.createdAt,
+              ...(task.scope && {declaredScope: task.scope})},
+            summary: {coverage, outputUnit, knownSubtotalKg, totalKg, totalT},
+            model, factorDecision, items, excludedSources,
+            limitations: [
+              '本稿覆盖所选月份的外购电力，其他排放源不计入。',
+              ...(coverage.status === 'partial' ? ['部分月份缺少已提交活动数据或匹配因子，仅列已知小计。'] : []),
+              '本稿供内部管理和复核，对外交付须单独授权。'
+            ]
+          }
+        });
       });
     },
 
@@ -479,7 +545,7 @@ export function createIntakeService(database, quarantine) {
         const {rows} = await tx.query(`
           SELECT draft.id AS "draftId", draft.snapshot_id AS "snapshotId", draft.created_at AS "createdAt",
             draft.payload#>>'{report,scope,from}' AS "from", draft.payload#>>'{report,scope,to}' AS "to",
-            draft.template_version AS "templateVersion", review.status AS "reviewStatus"
+            draft.template_version AS "templateVersion", draft.payload->>'mode' AS mode, review.status AS "reviewStatus"
           FROM carbon.internal_report_draft AS draft
           LEFT JOIN carbon.internal_report_review AS review
             ON NOT $6::boolean AND review.tenant_id = draft.tenant_id AND review.org_id = draft.org_id
@@ -493,8 +559,9 @@ export function createIntakeService(database, quarantine) {
           ORDER BY draft.created_at DESC, draft.id DESC
           LIMIT $5
         `, [scope.tenantId, orgId, caseId, cursor, limit + 1, customerOnly]);
-        const items = rows.slice(0, limit).map(({reviewStatus, ...item}) => ({...item,
-          createdAt: new Date(item.createdAt).toISOString(), ...(!customerOnly && {reviewStatus})}));
+        const items = rows.slice(0, limit).map(({reviewStatus, mode, ...item}) => ({...item,
+          createdAt: new Date(item.createdAt).toISOString(), ...(mode === 'controlled' && {mode}),
+          ...(!customerOnly && {reviewStatus})}));
         return {items, nextCursor: rows.length > limit ? items.at(-1).draftId : null};
       });
     },
@@ -550,7 +617,7 @@ export function createIntakeService(database, quarantine) {
           RETURNING ${reportReviewFields}
         `, [...key, decision, scope.actorId, scope.requestId, reason]);
         if (!review && await findReportReview(tx, key)) {
-          throw new CarbonError(409, 'REPORT_REVIEW_CONFLICT', '该演示稿已有复核结论。');
+          throw new CarbonError(409, 'REPORT_REVIEW_CONFLICT', '该报告稿已有复核结论。');
         }
         return {review: reportReviewResponse(review)};
       });
@@ -642,24 +709,7 @@ export function createIntakeService(database, quarantine) {
         if (task.createdBy === scope.actorId) {
           throw new CarbonError(403, 'SELF_REVIEW_FORBIDDEN', '发起人不能复核自己的任务。');
         }
-        const key = [scope.tenantId, orgId, caseId, submissionRevision];
-        const {rows: [submission]} = await tx.query(`
-          SELECT capture.submission_revision IS NOT NULL AS captured
-          FROM carbon.case_submission AS submission
-          LEFT JOIN carbon.case_submission_activity_capture AS capture
-            ON (capture.tenant_id, capture.org_id, capture.case_id, capture.submission_revision)
-             = (submission.tenant_id, submission.org_id, submission.case_id, submission.revision)
-          WHERE (submission.tenant_id, submission.org_id, submission.case_id, submission.revision) = ($1, $2, $3, $4)
-        `, key);
-        if (!submission) throw new CarbonError(404, 'REVISION_NOT_FOUND', '未找到该任务的提交版本。');
-        if (!submission.captured) {
-          throw new CarbonError(409, 'CALCULATION_INPUT_UNAVAILABLE', '该版本没有固定活动数据，请使用重新提交的版本。');
-        }
-        const stored = await readStoredFactorDecision(tx, key);
-        const factorDecision = stored?.decision ?? null;
-        const result = await calculateSubmittedElectricity(tx, key, from, to, factorDecision?.factor ?? null);
-        return {caseId, submissionRevision, from, to, mode: 'controlled', scope: 'purchased_electricity',
-          formalReportEligible: false, externalDeliveryEligible: false, factorDecision, ...result};
+        return readSubmissionCalculation(tx, [scope.tenantId, orgId, caseId, submissionRevision], from, to);
       });
     },
 

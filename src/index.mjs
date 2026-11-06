@@ -16,6 +16,7 @@ const routes = {
   revisionEvidence: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/evidence$/,
   revisionActivities: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/activities$/,
   submissionCalculation: /^\/v1\/professional\/cases\/([^/]+)\/revisions\/([^/]+)\/calculation-preview$/,
+  controlledReportDrafts: /^\/v1\/customer\/cases\/([^/]+)\/revisions\/([^/]+)\/internal-report-drafts$/,
   factorDecision: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/factor-decision$/,
   evidenceFile: /^\/v1\/customer\/cases\/([^/]+)\/evidence\/([^/]+)\/file$/,
   activityPreview: /^\/v1\/customer\/cases\/([^/]+)\/imports\/preview$/,
@@ -202,8 +203,8 @@ function errorResponse(error) {
     return {status: 409, body: {error: {code: 'EVIDENCE_UNAVAILABLE', message: '所选材料无法用于本次提交，请检查材料后重试。'}}};
   }
   if (error?.code === '23514' && (error.constraint === 'internal_report_review_case_state'
-    || error.constraint === 'internal_report_review_transition')) {
-    return {status: 409, body: {error: {code: 'REPORT_REVIEW_CONFLICT', message: '任务或演示稿当前不能完成该复核操作。'}}};
+    || error.constraint === 'internal_report_review_transition' || error.constraint === 'internal_report_review_source_revision')) {
+    return {status: 409, body: {error: {code: 'REPORT_REVIEW_CONFLICT', message: '任务或报告当前不能完成该复核操作，请核对任务状态和提交版本。'}}};
   }
   if ((error?.code === '23514' && error.constraint === 'case_factor_decision_submission_state')
     || (error?.code === '23505' && error.constraint === 'case_factor_decision_pkey')) {
@@ -295,6 +296,13 @@ export function createCarbonApi(database, {quarantine} = {}) {
             const input = commandBody(request.body, ['orgId', 'snapshotId']);
             return await intake.createInternalReportDraft(scope,
               uuid(input.orgId, '组织'), uuid(internalReportDrafts[2], '任务'), uuid(input.snapshotId, '快照'));
+          }
+          const controlledReportDrafts = routes.controlledReportDrafts.exec(path);
+          if (controlledReportDrafts) {
+            const input = commandBody(request.body, ['orgId', 'from', 'to']);
+            const [, caseId, version] = controlledReportDrafts;
+            return await intake.createControlledInternalReportDraft(scope,
+              uuid(input.orgId, '组织'), uuid(caseId, '任务'), revisionParam(version), ...calculationMonths(input.from, input.to));
           }
           const calculationSnapshots = routes.calculationSnapshots.exec(path);
           if (calculationSnapshots) {

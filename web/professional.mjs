@@ -1,4 +1,4 @@
-import { evidenceStatusLabel, getContext, internalReportHref, renderCasePreparation, renderHistory, renderRevisionEvidence, request, statusLabel } from '/shared.mjs';
+import { evidenceStatusLabel, getContext, internalReportHref, renderCasePreparation, renderHistory, renderRevisionEvidence, reportItemDisplay, reportTotals, request, statusLabel } from '/shared.mjs';
 import { showFactorDecision } from '/factor-decision.mjs';
 
 const queue = document.querySelector('#queue');
@@ -53,7 +53,7 @@ const reportForm = document.querySelector('#report-review-form');
 const reportReason = document.querySelector('#report-review-reason');
 const reportApprove = document.querySelector('#report-review-approve');
 const reportReturn = document.querySelector('#report-review-return');
-const reportStates = { submitted: '待复核', reviewed: '演示复核通过', returned: '演示稿已退回' };
+const reportStates = { submitted: '待复核', reviewed: '内部复核通过', returned: '稿件已退回' };
 const subjectTypes = { organization: '组织', facility: '设施', product: '产品', project: '项目' };
 const drafts = new Map();
 let orgId;
@@ -179,7 +179,7 @@ async function loadReports(view, after = null) {
   view.loading = true;
   reportMore.disabled = true;
   reportListError.textContent = '';
-  reportListStatus.textContent = '正在读取演示稿…';
+  reportListStatus.textContent = '正在读取稿件…';
   const query = new URLSearchParams({ orgId, limit: '10' });
   if (after) query.set('cursor', after);
   try {
@@ -192,14 +192,14 @@ async function loadReports(view, after = null) {
       button.type = 'button';
       button.dataset.draftId = item.draftId;
       const date = new Date(item.createdAt).toLocaleString('zh-CN');
-      button.textContent = `${item.from} 至 ${item.to} · ${date} · ${reportStates[item.reviewStatus]}`;
+      button.textContent = `${item.mode === 'controlled' ? '内部管理稿' : '演示稿'} · ${item.from} 至 ${item.to} · ${date} · ${reportStates[item.reviewStatus]}`;
       button.addEventListener('click', () => void loadReport(view, item.draftId, true));
       row.append(button);
       reportList.append(row);
     }
     view.cursor = nextCursor;
     reportMore.hidden = !nextCursor;
-    reportListStatus.textContent = reportList.children.length ? '' : '暂无已提交演示稿。';
+    reportListStatus.textContent = reportList.children.length ? '' : '暂无已提交稿件。';
   } catch (error) {
     if (reportView !== view) return;
     reportListStatus.textContent = '';
@@ -216,7 +216,8 @@ function drawReport(view, { draft, review }) {
   document.querySelector('#report-review-full').href = internalReportHref({orgId, caseId: draft.caseId,
     draftId: draft.draftId, view: 'professional'});
   document.querySelector('#report-review-watermark').textContent = report.watermark;
-  document.querySelector('#report-review-summary').textContent = `${report.scope.from} 至 ${report.scope.to} · ${report.summary.totalKgCO2e} kgCO₂e（${report.summary.totalTCO2e} tCO₂e）`;
+  const totals = reportTotals(report, draft.mode);
+  document.querySelector('#report-review-summary').textContent = `${report.scope.from} 至 ${report.scope.to} · ${totals.main} · ${totals.note}`;
   document.querySelector('#report-review-purpose').textContent = report.scope.purpose;
   const declaredScope = report.scope.declaredScope;
   const scope = document.querySelector('#report-review-scope');
@@ -236,8 +237,8 @@ function drawReport(view, { draft, review }) {
   }
   document.querySelector('#report-review-items').replaceChildren(...report.items.map(item => {
     const row = document.createElement('li');
-    const source = item.source === 'electricity' ? '购入电力' : '天然气';
-    row.textContent = `${item.period} ${source} · ${item.quantity} ${item.unit} · ${item.emissionsKgCO2e} kgCO₂e · 源文件第 ${item.lineage.sourceRow} 行 · 活动第 ${item.lineage.activityRevision} 版 · 因子 v${item.factor.version}`;
+    const {activity, quantity, emissions, provenance} = reportItemDisplay(item, draft.mode, report.summary.outputUnit);
+    row.textContent = [activity, quantity, emissions, provenance].join(' · ');
     return row;
   }));
   document.querySelector('#report-review-decision').textContent = [reportStates[review.status],

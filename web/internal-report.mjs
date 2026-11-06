@@ -1,4 +1,4 @@
-import { request } from './shared.mjs';
+import { reportItemDisplay, reportTotals, request } from './shared.mjs';
 
 const element = id => document.getElementById(id);
 const subjectTypes = {organization: '组织', facility: '设施', product: '产品', project: '项目'};
@@ -25,8 +25,8 @@ try {
   const result = await request(`/v1/${view}/cases/${encodeURIComponent(caseId)}/internal-report-drafts/${encodeURIComponent(draftId)}${suffix}?${new URLSearchParams({orgId})}`);
   const draft = view === 'professional' ? result.draft : result;
   const { review } = result;
-  const { report, template, createdAt } = draft;
-  const { scope, summary, items, limitations } = report;
+  const { report, mode, template, createdAt } = draft;
+  const { scope, summary, items, limitations, factorDecision, excludedSources } = report;
   const date = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Shanghai' });
 
   element('internal-report-title').textContent = report.title;
@@ -34,17 +34,22 @@ try {
   element('internal-report-meta').textContent = `模板第 ${template.version} 版 · ${date.format(new Date(createdAt))} 冻结稿`;
   if (review && Object.hasOwn(reviewStates, review.status)) {
     const state = element('internal-report-review');
-    state.textContent = [reviewStates[review.status], review.reviewedAt && date.format(new Date(review.reviewedAt))].filter(Boolean).join(' · ');
+    const reviewLabel = mode === 'controlled'
+      ? {submitted: '待内部复核', reviewed: '内部复核通过', returned: '管理稿已退回'}[review.status] : reviewStates[review.status];
+    state.textContent = [reviewLabel, review.reviewedAt && date.format(new Date(review.reviewedAt))].filter(Boolean).join(' · ');
     state.hidden = false;
     if (review.reason) {
       element('internal-report-review-reason').textContent = review.reason;
       element('internal-report-review-notes').hidden = false;
     }
   }
-  element('internal-report-total').textContent = `${summary.totalTCO2e} tCO₂e`;
-  element('internal-report-total-kg').textContent = `合计 ${summary.totalKgCO2e} kgCO₂e`;
+  const totals = reportTotals(report, mode);
+  element('internal-report-total').textContent = totals.main;
+  element('internal-report-total-kg').textContent = totals.note;
 
   const fields = [['核算期间', `${scope.from} 至 ${scope.to}`], ['办理用途', scope.purpose]];
+  if (scope.submissionRevision) fields.push(['提交版本', `第 ${scope.submissionRevision} 版`]);
+  if (excludedSources?.length) fields.push(['范围外来源', excludedSources.map(source => sourceNames[source] ?? source).join('、')]);
   if (scope.declaredScope) {
     const { subjectType, subjectName, jurisdiction, reportingYear, recipient } = scope.declaredScope;
     fields.push(['报告对象', `${subjectTypes[subjectType]} · ${subjectName}`], ['地区', jurisdiction],
@@ -59,14 +64,33 @@ try {
     scopeList.append(term, definition);
   }
 
+  if (factorDecision) {
+    const {factor, methodReference, rationale} = factorDecision;
+    const fields = element('internal-report-factor-fields');
+    for (const [label, value] of [
+      ['因子', `${factor.value} ${factor.outputUnit}/${factor.inputUnit} · ${factor.dataYear} 年 · 第 ${factor.version} 版`],
+      ['方法或规则版本', methodReference], ['适用依据', rationale]
+    ]) {
+      const term = document.createElement('dt');
+      const definition = document.createElement('dd');
+      term.textContent = label;
+      definition.textContent = value;
+      fields.append(term, definition);
+    }
+    const source = element('internal-report-factor-source');
+    source.href = factor.sourceUrl;
+    source.textContent = factor.sourceTitle;
+    element('internal-report-factor').hidden = false;
+  }
+
   for (const item of items) {
     const row = document.createElement('tr');
     const activity = document.createElement('th');
     activity.scope = 'row';
-    activity.textContent = `${item.period} · ${sourceNames[item.source] ?? item.source}`;
+    const display = reportItemDisplay(item, mode, summary.outputUnit);
+    activity.textContent = display.activity;
     row.append(activity);
-    for (const value of [`${item.quantity} ${item.unit}`, `${item.emissionsKgCO2e} kgCO₂e`,
-      `源文件第 ${item.lineage.sourceRow} 行 · 活动第 ${item.lineage.activityRevision} 版 · 因子第 ${item.factor.version} 版`]) {
+    for (const value of [display.quantity, display.emissions, display.provenance]) {
       const cell = document.createElement('td');
       cell.textContent = value;
       row.append(cell);

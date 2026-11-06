@@ -1,4 +1,4 @@
-import { evidenceStatusLabel, getContext, internalReportHref, renderCasePreparation, renderHistory, renderRevisionEvidence, request, statusLabel } from './shared.mjs';
+import { evidenceStatusLabel, getContext, internalReportHref, renderCasePreparation, renderHistory, renderRevisionEvidence, reportItemDisplay, reportTotals, request, statusLabel } from './shared.mjs';
 
 const element = id => document.getElementById(id);
 const list = element('cases');
@@ -206,7 +206,8 @@ function reportReviewPanel(draft) {
   panel.className = 'report-review stack';
   panel.dataset.reviewDraft = draft.draftId;
   const heading = document.createElement('h5');
-  heading.textContent = '演示稿复核';
+  const controlled = draft.mode === 'controlled';
+  heading.textContent = controlled ? '管理稿复核' : '演示稿复核';
   const status = document.createElement('p');
   status.className = 'report-review-status';
   status.setAttribute('role', 'status');
@@ -221,7 +222,7 @@ function reportReviewPanel(draft) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'report-review-submit';
-  button.textContent = '提交演示稿复核';
+  button.textContent = controlled ? '提交管理稿复核' : '提交演示稿复核';
   button.hidden = true;
   panel.append(heading, status, reason, error, button);
 
@@ -283,13 +284,21 @@ function renderReport(container, draft, historical = false) {
   container.replaceChildren();
   if (!draft) return;
   const heading = document.createElement('h4');
-  heading.textContent = historical ? `历史演示稿 · ${draft.report.title}` : draft.report.title;
+  const controlled = draft.mode === 'controlled';
+  heading.textContent = historical ? `${controlled ? '历史管理稿' : '历史演示稿'} · ${draft.report.title}` : draft.report.title;
   const watermark = document.createElement('strong');
   watermark.textContent = draft.report.watermark;
-  const {from, to, declaredScope} = draft.report.scope;
+  const {from, to, declaredScope, submissionRevision} = draft.report.scope;
   const summary = document.createElement('p');
-  summary.textContent = `${declaredScope ? '核算期间 ' : ''}${from} 至 ${to} · ${draft.report.summary.totalKgCO2e} kgCO₂e（${draft.report.summary.totalTCO2e} tCO₂e）`;
+  const totals = reportTotals(draft.report, draft.mode);
+  summary.textContent = controlled ? `提交第 ${submissionRevision} 版 · 核算期间 ${from} 至 ${to} · ${totals.main} · ${totals.note}`
+    : `${declaredScope ? '核算期间 ' : ''}${from} 至 ${to} · ${draft.report.summary.totalKgCO2e} kgCO₂e（${totals.main}）`;
   container.append(heading, watermark, summary);
+  if (draft.report.excludedSources?.length) {
+    const excluded = document.createElement('p');
+    excluded.textContent = `范围外来源 · ${draft.report.excludedSources.map(source => sourceLabels[source] ?? source).join('、')}`;
+    container.append(excluded);
+  }
   if (declaredScope) {
     const scope = document.createElement('dl');
     scope.className = 'scope-grid report-declared-scope';
@@ -312,8 +321,10 @@ function renderReport(container, draft, historical = false) {
   for (const item of draft.report.items) {
     const row = document.createElement('li');
     const label = document.createElement('p');
-    label.textContent = `${calculationLine(item)} · 源文件第 ${item.lineage.sourceRow} 行 · 活动第 ${item.lineage.activityRevision} 版 · 因子 v${item.factor.version}`;
-    row.append(label, reportActivitySource(draft.caseId, item));
+    const {activity, quantity, emissions, provenance} = reportItemDisplay(item, draft.mode, draft.report.summary.outputUnit);
+    label.textContent = [activity, quantity, emissions, provenance].join(' · ');
+    row.append(label);
+    if (item.lineage) row.append(reportActivitySource(draft.caseId, item));
     rows.append(row);
   }
   const fullReport = document.createElement('a');
@@ -331,13 +342,13 @@ function renderReportHistory() {
     button.dataset.draftId = draft.draftId;
     button.disabled = busy;
     const created = new Date(draft.createdAt).toLocaleString('zh-CN');
-    button.textContent = `${draft.from} 至 ${draft.to} · ${created} · 模板 v${draft.templateVersion}`;
+    button.textContent = `${draft.mode === 'controlled' ? '内部管理稿' : '演示稿'} · ${draft.from} 至 ${draft.to} · ${created} · 模板 v${draft.templateVersion}`;
     row.append(button);
     return row;
   }));
   reportHistoryList.hidden = !view?.items.length;
-  element('report-history-state').textContent = view?.loading ? '正在读取演示稿…' :
-    view?.loaded && !view.items.length ? '暂无历史演示稿。' : '';
+  element('report-history-state').textContent = view?.loading ? '正在读取稿件…' :
+    view?.loaded && !view.items.length ? '暂无历史稿件。' : '';
   element('report-history-error').textContent = view?.error ?? '';
   reportHistoryMore.hidden = !view?.cursor || view.loading || Boolean(view.error);
   reportHistoryRetry.hidden = !view?.error;
@@ -432,6 +443,7 @@ function renderWorkflow() {
   element('activity-csv').value = state.csv;
   element('calc-from').value = state.from;
   element('calc-to').value = state.to;
+  element('controlled-report-generate').hidden = !['submitted', 'approved'].includes(selected.status);
   element('activity-error').textContent = state.importError ?? '';
   element('calc-error').textContent = state.calcError ?? '';
   element('activity-status').textContent = batch?.receipt
@@ -925,11 +937,26 @@ for (const bound of ['from', 'to']) {
 
 element('calc-form').addEventListener('submit', async event => {
   event.preventDefault();
+  const controlled = event.submitter?.id === 'controlled-report-generate';
+  const item = selected;
+  if (controlled && !['submitted', 'approved'].includes(item?.status)) return;
+  let generated = false;
   await runWorkflow('calcError', async (state, path, orgId) => {
-    const {from, to} = state;
+    const from = element('calc-from').value;
+    const to = element('calc-to').value;
+    if (controlled) {
+      const revision = item.status === 'approved' ? item.revision - 1 : item.revision;
+      state.draft = await request(`${path}/revisions/${revision}/internal-report-drafts`, {orgId, from, to});
+      generated = true;
+      return;
+    }
     const query = new URLSearchParams({orgId, from, to});
     state.calculation = await request(`${path}/calculation-preview?${query}`);
   });
+  if (generated) {
+    element('report-result').focus();
+    if (reportHistory.open) loadReportHistory();
+  }
 });
 
 element('report-generate').addEventListener('click', async () => {
