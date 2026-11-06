@@ -3,58 +3,96 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>碳有据 · 企业碳业务入口</title>
+  <meta name="theme-color" content="#103b34">
+  <title>碳有据 · 企业碳业务</title>
   <link rel="stylesheet" href="/shared.css">
   <link rel="stylesheet" href="/home.css">
   <script type="module" src="/home.mjs"></script>
 </head>
 <body>
+  <a class="skip-link" href="#businesses">跳到业务入口</a>
   <header class="home-header">
-    <a class="home-brand" href="/" aria-current="page">碳有据</a>
+    <a class="home-brand" href="/" aria-current="page">
+      <svg aria-hidden="true" viewBox="0 0 40 40" width="36" height="36"><path fill="currentColor" d="M0 8a8 8 0 0 1 8-8h24a8 8 0 0 1 8 8v24a8 8 0 0 1-8 8H8a8 8 0 0 1-8-8z"/><path d="M11 12h10l8 8-8 8H11m5-8h13" fill="none" stroke="#d7f1bc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="11" cy="12" r="2" fill="#d7f1bc"/><circle cx="11" cy="28" r="2" fill="#d7f1bc"/></svg>
+      <span>碳有据</span>
+    </a>
     <nav aria-label="主导航">
-      <a href="/modules">七大业务模块</a>
-      <a href="/customer">企业工作台</a>
+      <a href="/modules">业务目录</a>
+      <a class="workspace-link" href="/customer">企业工作台 <span aria-hidden="true">↗</span></a>
     </nav>
   </header>
   <main>
-    <div class="home-intro">
-      <h1>企业碳业务入口</h1>
-      <p>按行业选择办理场景，核对交付对象和政策原文。</p>
-    </div>
-    <div class="home-grid">
-      <section class="home-panel" aria-labelledby="home-select-title">
-        <h2 id="home-select-title">选择办理场景</h2>
-        <div class="home-step">
-          <label for="home-industry"><span aria-hidden="true">1</span>行业</label>
-          <select id="home-industry" disabled><option value="">请选择行业</option></select>
+    <section class="home-intro" aria-labelledby="home-title">
+      <div class="home-intro-copy">
+        <h1 id="home-title">企业碳业务</h1>
+        <p>选一项业务，查看办理要求并提交资料。</p>
+        <a href="#businesses">选择业务 <span aria-hidden="true">↓</span></a>
+      </div>
+      <ol class="process" aria-label="办理顺序">
+        <li><span aria-hidden="true">01</span>确定场景</li>
+        <li><span aria-hidden="true">02</span>准备材料</li>
+        <li><span aria-hidden="true">03</span>提交复核</li>
+      </ol>
+    </section>
+
+    <section id="businesses" class="business-section" aria-labelledby="business-title">
+      <div class="section-heading">
+        <h2 id="business-title">选择业务</h2>
+        <a href="#guide">按行业找场景 <span aria-hidden="true">↓</span></a>
+      </div>
+      <ul class="business-list">
+        <li><a href="/?industry=buildings&amp;scenarioCode=building-inventory#guide"><strong>组织碳盘查</strong><span class="business-note">准备企业或设施年度排放资料</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
+        <li><a href="/customer?scenarioCode=product-footprint-prep"><strong>产品碳足迹</strong><span class="business-note">梳理产品、物料和工序数据</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
+        <li><a href="/customer?scenarioCode=verification-prep"><strong>碳核查</strong><span class="business-note">整理报告和原始凭证</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
+        <li><a href="/customer?scenarioCode=compliance-prep"><strong>碳交易与履约</strong><span class="business-note">准备配额、权属和履约资料</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
+        <li><a href="/customer?scenarioCode=zero-carbon-prep"><strong>零碳管理</strong><span class="business-note">梳理基线、目标和改造项目</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
+        <li><a href="/customer?scenarioCode=esg-disclosure-prep"><strong>ESG 与可持续披露</strong><span class="business-note">准备指标、议题及佐证</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
+        <li><a href="/customer?scenarioCode=overseas-report-prep"><strong>境外客户报告</strong><span class="business-note">核对买方模板、口径和期限</span><span class="business-arrow" aria-hidden="true">↗</span></a></li>
+      </ul>
+    </section>
+
+    <section id="guide" class="guide-section" aria-labelledby="home-select-title">
+      <div class="section-heading"><h2 id="home-select-title">按行业找场景</h2></div>
+      <div class="home-grid">
+        <div class="home-panel home-controls">
+          <div class="home-step">
+            <label for="home-industry">行业</label>
+            <select id="home-industry" disabled><option value="">请选择行业</option></select>
+          </div>
+          <div class="home-step">
+            <label for="home-scenario">办理场景</label>
+            <select id="home-scenario" disabled><option value="">请先选择行业</option></select>
+          </div>
+          <p id="home-catalog-state" role="status">正在读取行业场景…</p>
+          <p id="home-catalog-error" role="alert"></p>
+          <button id="home-catalog-retry" type="button" hidden>重新读取场景</button>
         </div>
-        <div class="home-step">
-          <label for="home-scenario"><span aria-hidden="true">2</span>办理场景</label>
-          <select id="home-scenario" disabled><option value="">请先选择行业</option></select>
-        </div>
-        <p id="home-catalog-state" role="status">正在读取行业场景…</p>
-        <p id="home-catalog-error" role="alert"></p>
-        <button id="home-catalog-retry" type="button" hidden>重试</button>
-        <a id="home-create" class="home-primary" hidden>进入工作台办理 <span aria-hidden="true">→</span></a>
-      </section>
-      <section class="home-panel home-context" aria-labelledby="home-context-title">
-        <h2 id="home-context-title">场景资料</h2>
-        <p id="home-context-empty" class="home-muted">选择办理场景后查看用途、交付对象和参考资料。</p>
-        <div id="home-context" hidden>
-          <h3 id="home-scenario-title"></h3>
-          <dl class="home-context-fields">
-            <dt>办理用途</dt><dd id="home-scenario-purpose"></dd>
-            <dt>交付对象</dt><dd id="home-scenario-recipient"></dd>
-            <dt>适用规则</dt><dd><span class="home-status">待确认</span></dd>
-          </dl>
-          <h3 class="home-references-heading">官方参考资料</h3>
-          <p id="home-reference-state" class="home-muted" role="status"></p>
-          <p id="home-reference-error" role="alert"></p>
-          <button id="home-reference-retry" type="button" hidden>重新读取资料</button>
-          <ul id="home-references"></ul>
-        </div>
-      </section>
-    </div>
+        <section class="home-panel home-context" aria-labelledby="home-context-title">
+          <h3 id="home-context-title">办理要求</h3>
+          <p id="home-context-empty" class="home-muted">选定场景后查看办理用途、交付对象和官方参考。</p>
+          <div id="home-context" hidden>
+            <h4 id="home-scenario-title"></h4>
+            <dl class="home-context-fields">
+              <dt>办理用途</dt><dd id="home-scenario-purpose"></dd>
+              <dt>交付对象</dt><dd id="home-scenario-recipient"></dd>
+              <dt>适用规则</dt><dd><span class="home-status">待确认</span></dd>
+            </dl>
+            <details id="home-preparation" hidden>
+              <summary>准备材料</summary>
+              <ul id="home-preparation-items"></ul>
+            </details>
+            <details class="home-references">
+              <summary>官方参考资料</summary>
+              <p id="home-reference-state" class="home-muted" role="status"></p>
+              <p id="home-reference-error" role="alert"></p>
+              <button id="home-reference-retry" type="button" hidden>重新读取资料</button>
+              <ul id="home-references"></ul>
+            </details>
+            <a id="home-create" class="home-primary" hidden>进入工作台办理 <span aria-hidden="true">↗</span></a>
+          </div>
+        </section>
+      </div>
+    </section>
   </main>
 </body>
 </html>

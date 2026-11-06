@@ -7,7 +7,12 @@ test('sample preview starts with a frozen report in the independent review queue
   t.after(() => preview.close());
   const home = await fetch(preview.origin + '/');
   assert.equal(home.status, 200);
-  assert.match(await home.text(), /id="home-industry"/);
+  const homepage = await home.text();
+  assert.match(homepage, /id="home-industry"/);
+  const businessLinks = homepage.match(/<ul class="business-list">([\s\S]*?)<\/ul>/)?.[1] ?? '';
+  assert.equal([...businessLinks.matchAll(/<a href=/g)].length, 7);
+  assert.match(businessLinks, /scenarioCode=building-inventory#guide/);
+  assert.match(businessLinks, /scenarioCode=overseas-report-prep/);
   const directory = await fetch(preview.origin + '/modules');
   assert.equal(directory.status, 200);
   const modules = await directory.text();
