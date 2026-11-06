@@ -34,6 +34,7 @@ const purpose = element('purpose');
 const includeScope = element('include-intake-scope');
 const scopeFields = element('intake-scope-fields');
 const subjectTypes = {organization: '组织', facility: '设施', product: '产品', project: '项目'};
+const scenarioPreparation = element('scenario-preparation');
 const scenarioReferences = element('scenario-references');
 const referenceItems = element('scenario-reference-items');
 const referenceState = element('scenario-references-state');
@@ -69,6 +70,13 @@ function renderScenario() {
 function renderScenarioContext() {
   const item = catalog.find(candidate => candidate.id === scenario.value);
   element('scenario-context').textContent = item ? `${item.purpose} · 交付对象 ${item.recipient} · 适用规则待确认` : '';
+  const {materials = [], reportRequirements = []} = item?.preparation ?? {};
+  setRows(element('scenario-material-items'), materials);
+  setRows(element('scenario-report-items'), reportRequirements);
+  element('scenario-preparation-materials').hidden = !materials.length;
+  element('scenario-preparation-report').hidden = !reportRequirements.length;
+  scenarioPreparation.hidden = !materials.length && !reportRequirements.length;
+  if (scenarioPreparation.hidden || referenceReleaseId !== item?.id) scenarioPreparation.open = false;
   scenarioReferences.hidden = !item;
   if (referenceReleaseId === item?.id) return;
   if (purpose.value === suggestedPurpose) purpose.value = '';

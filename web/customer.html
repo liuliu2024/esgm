@@ -66,6 +66,17 @@
             <label for="scenario">办理场景</label>
             <select id="scenario" required></select>
             <p id="scenario-context" class="muted" role="status"></p>
+            <details id="scenario-preparation" hidden>
+              <summary>准备材料与报告要求</summary>
+              <section id="scenario-preparation-materials" hidden>
+                <h3>准备材料</h3>
+                <ul id="scenario-material-items" class="history-list"></ul>
+              </section>
+              <section id="scenario-preparation-report" hidden>
+                <h3>报告要求</h3>
+                <ul id="scenario-report-items" class="history-list"></ul>
+              </section>
+            </details>
             <details id="scenario-references" hidden>
               <summary>参考资料</summary>
               <p id="scenario-references-state" class="muted" role="status"></p>

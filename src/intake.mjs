@@ -567,6 +567,11 @@ export function createIntakeService(database, quarantine) {
         for (const {id, code, version, catalog} of rows) {
           if (!catalogFields.every(field => typeof catalog?.[field] === 'string' && catalog[field].trim())) continue;
           const details = Object.fromEntries(catalogFields.map(field => [field, catalog[field]]));
+          const {materials, reportRequirements} = catalog.preparation ?? {};
+          if ([materials, reportRequirements].every(lines => Array.isArray(lines) && lines.length &&
+              lines.every(line => typeof line === 'string' && line.trim()))) {
+            details.preparation = {materials, reportRequirements};
+          }
           items.push({id, code, version, ...details, ruleStatus: 'needs_review'});
         }
         return {items};

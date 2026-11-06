@@ -13,6 +13,8 @@ test('sample preview starts with a frozen report in the independent review queue
   const modules = await directory.text();
   assert.equal([...modules.matchAll(/<details>/g)].length, 7);
   assert.match(modules, /href="\/\?industry=buildings"/);
+  assert.match(modules, /href="\/customer\?scenarioCode=product-footprint-prep"/);
+  assert.match(modules, /href="\/customer\?scenarioCode=overseas-report-prep"/);
   const get = async path => {
     const response = await fetch(preview.origin + path);
     assert.equal(response.status, 200);
@@ -74,7 +76,7 @@ test('three preview entries use the same intake and review workflow', async () =
     };
     const { orgId, scenarioReleaseId } = await read('/demo/context');
     const catalog = await read(`/v1/customer/scenarios?orgId=${orgId}`);
-    assert.equal(catalog.items.length, 6);
+    assert.equal(catalog.items.length, 8);
     assert.ok(catalog.items.every(item => item.ruleStatus === 'needs_review'));
     const selected = catalog.items.find(item => item.code === 'carbon-intake');
     assert.equal(selected.id, scenarioReleaseId);

@@ -5,6 +5,30 @@ import { createCarbonApi } from '../src/index.mjs';
 
 const specialistIntake = [
   {
+    code: 'product-footprint-prep',
+    catalog: { industryCode: 'manufacturing', industryName: '工业制造', title: '产品碳足迹资料准备',
+      purpose: '确认产品型号、功能单位与生命周期边界，整理物料和工序数据', recipient: '产品负责人或指定采购方',
+      preparation: {
+        materials: ['产品型号、功能单位、产量与统计期间', '物料清单、工序、能源及运输数据', '供应商数据、来源凭证及缺失项'],
+        reportRequirements: ['确认产品适用方法及生命周期边界', '说明数据来源、分配方法、假设和限制', '核对报告用途及是否需要独立验证']
+      } },
+    references: [{ code: 'gbt-24067-2024', title: '产品碳足迹量化要求和指南发布信息', publisher: '生态环境部',
+      sourceUrl: 'https://www.mee.gov.cn/xxgk/hjyw/202409/t20240910_1085619.shtml',
+      scopeNote: '用于了解产品碳足迹通则，具体产品规则和买方要求仍需核对。' }]
+  },
+  {
+    code: 'overseas-report-prep',
+    catalog: { industryCode: 'manufacturing', industryName: '工业制造', title: '境外客户报告资料准备',
+      purpose: '核对境外买方的模板、报告对象、语言和交付期限', recipient: '境外采购方或其指定接收人',
+      preparation: {
+        materials: ['买方邮件、原始模板、报告语言和截止日期', '报告对象、数据期间及对应的产品或设施', '拟提供的核算数据、证据和验证要求'],
+        reportRequirements: ['确认买方要求的是设施排放、产品足迹、CBAM 数据还是 ESG 问卷', '逐项核对模板、报告范围、数据期间及验证要求', '确认收件授权、披露范围和交付方式']
+      } },
+    references: [{ code: 'eu-cbam-definitive', title: '欧盟 CBAM 正式阶段指引', publisher: '欧盟委员会税务与海关总司',
+      sourceUrl: 'https://taxation-customs.ec.europa.eu/carbon-border-adjustment-mechanism/cbam-definitive-regime_en',
+      scopeNote: '买方明确索取 CBAM 数据时查阅。需单独确认商品范围、进口安排和适用义务。' }]
+  },
+  {
     code: 'verification-prep',
     catalog: { industryCode: 'manufacturing', industryName: '工业制造', title: '碳核查资料准备',
       purpose: '整理待核查报告、原始凭证和数据修订记录', recipient: '企业核查准备团队' },
