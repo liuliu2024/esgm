@@ -31,8 +31,14 @@ test('sample preview starts with a frozen report in the independent review queue
     return response.json();
   };
   const { orgId } = await get('/demo/context');
-  const { cases: [task] } = await get(`/v1/customer/cases?orgId=${orgId}`);
-  assert.equal(task.purpose, '合成样本｜采购方碳报告');
+  const { cases } = await get(`/v1/customer/cases?orgId=${orgId}`);
+  const task = cases.find(item => item.purpose === '合成样本｜采购方碳报告');
+  const trial = cases.find(item => item.purpose === '合成样本｜外购电力受控试算');
+  const trialPath = `/v1/professional/cases/${trial.id}/revisions/${trial.revision}/calculation-preview`;
+  const electricity = await get(`${trialPath}?orgId=${orgId}&from=2024-01&to=2024-02`);
+  assert.equal(electricity.totalKg, '577.7');
+  assert.equal(electricity.outputUnit, 'kgCO2e');
+  assert.deepEqual(electricity.excludedSources, ['natural_gas']);
   assert.equal(task.status, 'submitted');
   const path = `/v1/customer/cases/${task.id}/internal-report-drafts`;
   const { items: [draft] } = await get(`${path}?orgId=${orgId}`);
@@ -69,6 +75,7 @@ test('three preview entries use the same intake and review workflow', async () =
         assert.match(html, /历史演示稿/);
         assert.match(html, /参考资料/);
         assert.match(html, /申报范围/);
+        assert.match(html, /id="activity-file" type="file" accept="\.csv,text\/csv"/);
       }
       if (path === '/professional') assert.match(html, /申报范围/);
     }

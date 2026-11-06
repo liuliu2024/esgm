@@ -846,6 +846,24 @@ correctionForm.addEventListener('submit', event => {
 correction.addEventListener('input', () => notes.set(selected.id, correction.value));
 history.addEventListener('toggle', loadHistory);
 
+element('activity-file').addEventListener('change', async event => {
+  const input = event.currentTarget;
+  const [file] = input.files;
+  input.value = '';
+  if (!file) return;
+  await runWorkflow('importError', async state => {
+    if (file.size > 8192) throw new Error('请选择不超过 8192 字节的 CSV 文件。');
+    const bytes = await file.arrayBuffer();
+    try {
+      state.csv = new TextDecoder('utf-8', {fatal: true}).decode(bytes);
+    } catch {
+      throw new Error('无法读取文件内容。请将 CSV 保存为 UTF-8 后再选择。');
+    }
+    state.batch = null;
+    state.stale = false;
+  });
+});
+
 element('activity-csv').addEventListener('input', event => {
   const state = workflows.get(selected.id);
   state.csv = event.target.value;

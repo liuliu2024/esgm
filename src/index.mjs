@@ -15,6 +15,7 @@ const routes = {
   evidence: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/evidence$/,
   revisionEvidence: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/evidence$/,
   revisionActivities: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/activities$/,
+  submissionCalculation: /^\/v1\/professional\/cases\/([^/]+)\/revisions\/([^/]+)\/calculation-preview$/,
   factorDecision: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/factor-decision$/,
   evidenceFile: /^\/v1\/customer\/cases\/([^/]+)\/evidence\/([^/]+)\/file$/,
   activityPreview: /^\/v1\/customer\/cases\/([^/]+)\/imports\/preview$/,
@@ -493,6 +494,14 @@ export function createCarbonApi(database, {quarantine} = {}) {
             const [, role, caseId, version] = revisionActivities;
             return {status: 200, body: await intake.listSubmissionActivities(scope,
               uuid(query.get('orgId'), '组织'), uuid(caseId, '任务'), revisionParam(version), role === 'customer')};
+          }
+          const submissionCalculation = routes.submissionCalculation.exec(path);
+          if (submissionCalculation) {
+            queryFields(query, ['orgId', 'from', 'to']);
+            const [, caseId, version] = submissionCalculation;
+            return {status: 200, body: await intake.previewSubmissionCalculation(scope,
+              uuid(query.get('orgId'), '组织'), uuid(caseId, '任务'), revisionParam(version),
+              ...calculationMonths(query.get('from'), query.get('to')))};
           }
           const administration = routes.administration.exec(path);
           if (administration) {

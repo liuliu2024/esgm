@@ -51,6 +51,34 @@ async function seedReportSample(demo) {
   await post(`${path}/internal-report-drafts/${draft.draftId}/submit-review`, {});
 }
 
+async function seedElectricitySample(demo) {
+  const {orgId, scenarioReleaseId} = demo;
+  async function post(role, path, fields) {
+    const result = await demo.dispatch(role, 'POST', `/v1/${role === 'reviewer' ? 'professional' : 'customer'}/cases${path}`,
+      {orgId, ...fields});
+    if (result.status !== 201 && result.status !== 200) {
+      throw new Error(`Electricity sample failed at ${path || '/cases'}: ${result.body.error?.code ?? result.status}`);
+    }
+    return result.body;
+  }
+  const task = await post('customer', '', {
+    scenarioReleaseId, purpose: '合成样本｜外购电力受控试算',
+    scope: {subjectType: 'product', subjectName: '合成设备 B', jurisdiction: '上海市',
+      reportingYear: '2024', recipient: '样例采购方'}
+  });
+  const path = `/${task.id}`;
+  const batch = await post('customer', `${path}/imports`, {
+    csv: 'period,source,quantity,unit\n2024-01,electricity,1,MWh\n2024-02,electricity,0,kWh\n2024-01,natural_gas,200,m3'
+  });
+  await post('customer', `${path}/imports/${batch.batchId}/commit`, {previewRevision: batch.previewRevision});
+  const submitted = await post('customer', `${path}/submit`, {revision: task.revision});
+  await post('reviewer', `${path}/revisions/${submitted.revision}/factor-decision`, {
+    factorId: 'cn-electricity-product-average', factorVersion: 1, accountingBasis: 'product_footprint',
+    regionCode: 'CN', dataYear: 2024, methodReference: '样本试算｜2024 年全国电力碳足迹因子表 1',
+    rationale: '用合成用电数据验证 2024 年全国电力碳足迹因子的计算和证据引用。'
+  });
+}
+
 export async function startPreview(port = 0, { sample = false } = {}) {
   const quarantine = await createLocalQuarantine();
   const demo = await startDemo({ quarantine }).catch(async error => {
@@ -128,7 +156,10 @@ export async function startPreview(port = 0, { sample = false } = {}) {
     }
   });
   try {
-    if (sample) await seedReportSample(demo);
+    if (sample) {
+      await seedReportSample(demo);
+      await seedElectricitySample(demo);
+    }
     await new Promise((resolve, reject) => {
       server.once('error', reject);
       server.listen(port, '127.0.0.1', resolve);

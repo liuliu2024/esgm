@@ -35,7 +35,17 @@
 
 `GET /v1/{customer|professional}/cases/:caseId/revisions/:revision/activities?orgId=…` 返回 `{submissionRevision,status,items}`。新提交的状态为 `captured`，即使没有活动行也返回空数组。功能上线前的提交为 `legacy_unavailable`，不会以当前活动回填。非提交版本返回 404。客户仅访问本人的授权任务，专业人员仅访问有权复核的已提交任务的固定内容。
 
-专业作业台在「提交版本证据」下显示该版本的活动数据。受控试算将同时引用同一提交的活动输入及因子决定。现有合成核算和报告接口继续保留其原有用途和资格标识。
+专业作业台在「提交版本证据」下显示该版本的活动数据。受控试算同时引用同一提交的活动输入及因子决定。现有合成核算和报告接口继续保留其原有用途和资格标识。
+
+### 外购电力受控试算
+
+`GET /v1/professional/cases/:caseId/revisions/:revision/calculation-preview?orgId=…&from=YYYY-MM&to=YYYY-MM`。沿用包含首尾的 1 至 12 个月范围。组织复核者可读取授权任务的提交版本，任务发起人不能在专业端执行该动作。无权返回 403，找不到任务或提交版本返回 404，旧版本缺固定活动输入返回 409 `CALCULATION_INPUT_UNAVAILABLE`。
+
+每月一个外购电力槽位。仅使用该提交固定的活动修订与目录因子决定。首片限定为同一数据年和输入单位匹配的试算。地域和方法的选择依据取自因子决定。无活动为 `missing_activity`，有活动但缺匹配因子为 `missing_factor`，已计算为 `calculated`。同期间的其他已提交来源列在 `excludedSources`。
+
+返回 `scope: "purchased_electricity"`、`mode: "controlled"`、覆盖计数、因子决定、来源明细和十进制字符串。按因子的 `outputUnit` 区分 `kgCO2` 与 `kgCO2e`。部分覆盖仅提供 `knownSubtotalKg`。完整覆盖提供 `totalKg` 和 `totalT`。保留已确认的零。结果仅供工作台复核，`formalReportEligible` 与 `externalDeliveryEligible` 均为 `false`。
+
+验证入口为专业作业台的「提交版本证据 → 外购电力受控试算」。本地 `npm run preview -- --sample` 附带一项合成用电任务。选择 2024 年 1 至 2 月，可核对 1000 kWh 与 0 kWh、合计 577.7 kgCO₂e，天然气列在范围外。使用 [2024 年电力碳足迹因子公告](https://www.mee.gov.cn/xxgk2018/xxgk/xxgk01/202510/t20251024_1130734.html) 和 [2023 年电力二氧化碳排放因子公告](https://www.mee.gov.cn/xxgk2018/xxgk/xxgk01/202512/t20251231_1139517.html) 对照两种口径。
 
 ## 验收
 

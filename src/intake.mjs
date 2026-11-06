@@ -247,9 +247,51 @@ async function readStoredFactorDecision(tx, key) {
     WHERE decision.tenant_id = $1 AND decision.org_id = $2 AND decision.case_id = $3
       AND decision.submission_revision = $4
   `, key);
-  if (!decision) throw new CarbonError(404, 'FACTOR_DECISION_NOT_FOUND', '未找到该提交的因子选择记录。');
+  if (!decision) return null;
   return {decision: {...decision, decidedAt: new Date(decision.decidedAt).toISOString(),
     formalReportEligible: false, externalDeliveryEligible: false}};
+}
+
+async function calculateSubmittedElectricity(tx, key, from, to, factor) {
+  const {rows} = await tx.query(`
+    WITH activity AS (
+      SELECT * FROM carbon.case_submission_activity
+      WHERE tenant_id = $1 AND org_id = $2 AND case_id = $3 AND submission_revision = $4
+        AND period BETWEEN $5::date AND $6::date
+    ), slots AS (
+      SELECT month.period, activity.quantity, activity.unit,
+        CASE WHEN extract(year FROM month.period) = $7::integer AND activity.unit = $8
+          THEN activity.quantity * $9::numeric END AS emissions,
+        CASE WHEN activity.activity_revision IS NOT NULL THEN jsonb_build_object(
+          'activityRevision', activity.activity_revision, 'batchId', activity.batch_id,
+          'previewRevision', activity.preview_revision, 'sourceRow', activity.source_row,
+          'sourceType', activity.source_type, 'conversionVersion', activity.conversion_version,
+          'originalQuantity', activity.original_quantity, 'originalUnit', activity.original_unit
+        ) END AS lineage
+      FROM generate_series($5::date::timestamp, $6::date::timestamp, interval '1 month') AS month(period)
+      LEFT JOIN activity ON activity.period = month.period::date AND activity.source = 'electricity'
+    )
+    SELECT to_char(period, 'YYYY-MM') AS period, trim_scale(quantity)::text AS quantity,
+      coalesce(unit, 'kWh') AS unit, trim_scale(emissions)::text AS "emissionsKg", lineage,
+      trim_scale(sum(emissions) OVER ())::text AS "subtotalKg",
+      trim_scale(sum(emissions) OVER () * 0.001::numeric)::text AS "subtotalT",
+      ARRAY(SELECT DISTINCT source FROM activity WHERE source <> 'electricity' ORDER BY source) AS "excludedSources"
+    FROM slots ORDER BY period
+  `, [...key, `${from}-01`, `${to}-01`, factor?.dataYear ?? null, factor?.inputUnit ?? null, factor?.value ?? null]);
+  const {subtotalKg, subtotalT, excludedSources} = rows[0];
+  const items = rows.map(({subtotalKg, subtotalT, excludedSources, ...item}) => ({
+    ...item, source: 'electricity', factor,
+    status: item.quantity === null ? 'missing_activity' : item.emissionsKg === null ? 'missing_factor' : 'calculated'
+  }));
+  const expectedSlots = items.length;
+  const availableSlots = items.filter(item => item.status === 'calculated').length;
+  const missingSlots = expectedSlots - availableSlots;
+  const status = !availableSlots ? 'empty' : missingSlots ? 'partial' : 'complete';
+  return {
+    coverage: {status, expectedSlots, availableSlots, missingSlots}, items, excludedSources,
+    outputUnit: factor?.outputUnit ?? null, knownSubtotalKg: subtotalKg,
+    totalKg: missingSlots ? null : subtotalKg, totalT: missingSlots ? null : subtotalT
+  };
 }
 
 function draftResponse({draftId, createdAt, payload}) {
@@ -588,7 +630,36 @@ export function createIntakeService(database, quarantine) {
     readFactorDecision(scope, orgId, caseId, submissionRevision, customerOnly) {
       return inWorkspace(scope, async tx => {
         await readVisibleCase(tx, scope, orgId, caseId, customerOnly);
-        return readStoredFactorDecision(tx, [scope.tenantId, orgId, caseId, submissionRevision]);
+        const result = await readStoredFactorDecision(tx, [scope.tenantId, orgId, caseId, submissionRevision]);
+        if (!result) throw new CarbonError(404, 'FACTOR_DECISION_NOT_FOUND', '未找到该提交的因子选择记录。');
+        return result;
+      });
+    },
+
+    previewSubmissionCalculation(scope, orgId, caseId, submissionRevision, from, to) {
+      return inWorkspace(scope, async tx => {
+        const task = await readVisibleCase(tx, scope, orgId, caseId, false);
+        if (task.createdBy === scope.actorId) {
+          throw new CarbonError(403, 'SELF_REVIEW_FORBIDDEN', '发起人不能复核自己的任务。');
+        }
+        const key = [scope.tenantId, orgId, caseId, submissionRevision];
+        const {rows: [submission]} = await tx.query(`
+          SELECT capture.submission_revision IS NOT NULL AS captured
+          FROM carbon.case_submission AS submission
+          LEFT JOIN carbon.case_submission_activity_capture AS capture
+            ON (capture.tenant_id, capture.org_id, capture.case_id, capture.submission_revision)
+             = (submission.tenant_id, submission.org_id, submission.case_id, submission.revision)
+          WHERE (submission.tenant_id, submission.org_id, submission.case_id, submission.revision) = ($1, $2, $3, $4)
+        `, key);
+        if (!submission) throw new CarbonError(404, 'REVISION_NOT_FOUND', '未找到该任务的提交版本。');
+        if (!submission.captured) {
+          throw new CarbonError(409, 'CALCULATION_INPUT_UNAVAILABLE', '该版本没有固定活动数据，请使用重新提交的版本。');
+        }
+        const stored = await readStoredFactorDecision(tx, key);
+        const factorDecision = stored?.decision ?? null;
+        const result = await calculateSubmittedElectricity(tx, key, from, to, factorDecision?.factor ?? null);
+        return {caseId, submissionRevision, from, to, mode: 'controlled', scope: 'purchased_electricity',
+          formalReportEligible: false, externalDeliveryEligible: false, factorDecision, ...result};
       });
     },
 

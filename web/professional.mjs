@@ -24,6 +24,15 @@ const revisionEvidenceList = document.querySelector('#revision-evidence-list');
 const revisionActivity = document.querySelector('#revision-activity');
 const revisionActivityStatus = document.querySelector('#revision-activity-status');
 const revisionActivityList = document.querySelector('#revision-activity-list');
+const revisionCalculation = document.querySelector('#revision-calculation');
+const calculationForm = document.querySelector('#revision-calculation-form');
+const calculationFrom = document.querySelector('#revision-calculation-from');
+const calculationTo = document.querySelector('#revision-calculation-to');
+const calculationRun = document.querySelector('#revision-calculation-run');
+const calculationStatus = document.querySelector('#revision-calculation-status');
+const calculationError = document.querySelector('#revision-calculation-error');
+const calculationExcluded = document.querySelector('#revision-calculation-excluded');
+const calculationList = document.querySelector('#revision-calculation-list');
 const factorForm = document.querySelector('#factor-reference-form');
 const factorBasis = document.querySelector('#factor-accounting-basis');
 const factorYear = document.querySelector('#factor-data-year');
@@ -55,6 +64,54 @@ let saving = false;
 let reportView;
 let revisionEvidenceView;
 const activityNames = {electricity: '购入电力', natural_gas: '天然气'};
+
+function clearRevisionCalculation() {
+  if (revisionEvidenceView) revisionEvidenceView.calculationSelection = undefined;
+  calculationStatus.textContent = calculationError.textContent = calculationExcluded.textContent = '';
+  calculationList.replaceChildren();
+  calculationList.hidden = true;
+  calculationRun.disabled = false;
+}
+
+async function calculateRevision() {
+  const view = revisionEvidenceView;
+  const revision = evidenceRevision.value;
+  if (!view || !revision || calculationRun.disabled) return;
+  const selection = Symbol();
+  clearRevisionCalculation();
+  view.calculationSelection = selection;
+  calculationRun.disabled = true;
+  calculationStatus.textContent = '正在试算…';
+  const query = new URLSearchParams({orgId, from: calculationFrom.value, to: calculationTo.value});
+  try {
+    const result = await request(`${view.base}/revisions/${revision}/calculation-preview?${query}`);
+    if (revisionEvidenceView !== view || view.calculationSelection !== selection) return;
+    const {coverage, items, outputUnit, knownSubtotalKg, totalKg, totalT, excludedSources} = result;
+    const unit = {kgCO2: 'kg CO₂', kgCO2e: 'kg CO₂e'}[outputUnit] ?? outputUnit;
+    const totalUnit = {kgCO2: 't CO₂', kgCO2e: 't CO₂e'}[outputUnit];
+    const amount = totalKg !== null ? `合计 ${totalKg} ${unit}（${totalT} ${totalUnit}）`
+      : knownSubtotalKg !== null ? `已知小计 ${knownSubtotalKg} ${unit}` : '暂无可计算结果';
+    calculationStatus.textContent = `已试算 ${coverage.availableSlots}/${coverage.expectedSlots} 项 · ${amount} · 正式报告资格未具备`;
+    calculationExcluded.textContent = excludedSources.length
+      ? `本次范围外：${excludedSources.map(source => activityNames[source] ?? source).join('、')}` : '';
+    calculationList.replaceChildren(...items.map(item => {
+      const row = document.createElement('li');
+      const label = [item.period, activityNames[item.source] ?? item.source];
+      if (item.quantity !== null) label.push(`${item.quantity} ${item.unit}`);
+      label.push({calculated: `${item.emissionsKg} ${unit}`, missing_activity: '缺已提交活动数据',
+        missing_factor: '缺适用因子'}[item.status]);
+      row.textContent = label.join(' · ');
+      return row;
+    }));
+    calculationList.hidden = !items.length;
+  } catch (error) {
+    if (revisionEvidenceView !== view || view.calculationSelection !== selection) return;
+    calculationStatus.textContent = '';
+    calculationError.textContent = error.message;
+  } finally {
+    if (revisionEvidenceView === view && view.calculationSelection === selection) calculationRun.disabled = false;
+  }
+}
 
 async function loadRevisionActivity() {
   const view = revisionEvidenceView;
@@ -275,6 +332,9 @@ async function loadCase(item, focus = false) {
   revisionEvidenceView = undefined;
   revisionEvidenceSection.hidden = true;
   revisionActivity.open = false;
+  revisionCalculation.open = false;
+  calculationForm.reset();
+  clearRevisionCalculation();
   showFactorDecision();
   resetReportView();
   detail.hidden = true;
@@ -401,6 +461,7 @@ reportPanel.addEventListener('toggle', () => {
   if (reportPanel.open && reportView) void loadReports(reportView);
 });
 evidenceRevision.addEventListener('change', () => {
+  clearRevisionCalculation();
   void loadRevisionEvidence();
   void loadRevisionActivity();
   const revision = Number(evidenceRevision.value);
@@ -408,6 +469,11 @@ evidenceRevision.addEventListener('change', () => {
     canDecide: selected.nextAction === 'review' && selected.revision === revision});
 });
 revisionActivity.addEventListener('toggle', () => void loadRevisionActivity());
+calculationForm.addEventListener('change', clearRevisionCalculation);
+calculationForm.addEventListener('submit', event => {
+  event.preventDefault();
+  void calculateRevision();
+});
 reportMore.addEventListener('click', () => {
   if (reportView?.cursor) void loadReports(reportView, reportView.cursor);
 });

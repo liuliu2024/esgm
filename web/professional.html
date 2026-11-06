@@ -8,6 +8,9 @@
   <style>
     body { --paper: #f4f8f9; --surface: #fff; --ink: #142b40; --muted: #496171; --line: #dce7e9; --accent: #076d66; --accent-soft: #e5f4f0; }
     #factor-references > summary { color: var(--accent); font-weight: 650; cursor: pointer; }
+    #revision-calculation > summary { cursor: pointer; font-weight: 650; }
+    .calculation-months { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px; }
+    .calculation-months label { display: grid; gap: 3px; }
   </style>
   <script type="module" src="/professional.mjs"></script>
 </head>
@@ -101,6 +104,21 @@
               <summary>该版本的活动数据</summary>
               <p id="revision-activity-status" role="status"></p>
               <ul id="revision-activity-list" class="history-list" hidden></ul>
+            </details>
+            <details id="revision-calculation">
+              <summary>外购电力受控试算</summary>
+              <form id="revision-calculation-form" class="stack">
+                <p class="muted">仅供专业内部核对。</p>
+                <div class="calculation-months">
+                  <label>起始月 <input id="revision-calculation-from" type="month" required></label>
+                  <label>结束月 <input id="revision-calculation-to" type="month" required></label>
+                  <button id="revision-calculation-run" type="submit">运行试算</button>
+                </div>
+              </form>
+              <p id="revision-calculation-status" role="status"></p>
+              <p id="revision-calculation-error" role="alert"></p>
+              <p id="revision-calculation-excluded" class="muted"></p>
+              <ul id="revision-calculation-list" class="history-list" hidden></ul>
             </details>
           </section>
           <details id="case-factor-decision" hidden>
