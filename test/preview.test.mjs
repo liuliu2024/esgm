@@ -74,11 +74,11 @@ test('three preview entries use the same intake and review workflow', async () =
     };
     const { orgId, scenarioReleaseId } = await read('/demo/context');
     const catalog = await read(`/v1/customer/scenarios?orgId=${orgId}`);
-    assert.deepEqual(catalog.items.map(({industryCode, ruleStatus}) => [industryCode, ruleStatus]),
-      [['buildings', 'needs_review'], ['manufacturing', 'needs_review']]);
-    const selected = catalog.items.find(item => item.industryCode === 'manufacturing');
+    assert.equal(catalog.items.length, 6);
+    assert.ok(catalog.items.every(item => item.ruleStatus === 'needs_review'));
+    const selected = catalog.items.find(item => item.code === 'carbon-intake');
     assert.equal(selected.id, scenarioReleaseId);
-    const building = catalog.items.find(item => item.industryCode === 'buildings');
+    const building = catalog.items.find(item => item.code === 'building-inventory');
     const manufacturingReferences = await read(`/v1/customer/scenarios/${selected.id}/references?orgId=${orgId}`);
     const buildingReferences = await read(`/v1/customer/scenarios/${building.id}/references?orgId=${orgId}`);
     assert.equal(manufacturingReferences.ruleStatus, 'needs_review');

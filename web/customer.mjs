@@ -30,6 +30,7 @@ const notes = new Map();
 const workflows = new Map();
 const industry = element('industry');
 const scenario = element('scenario');
+const purpose = element('purpose');
 const includeScope = element('include-intake-scope');
 const scopeFields = element('intake-scope-fields');
 const subjectTypes = {organization: '组织', facility: '设施', product: '产品', project: '项目'};
@@ -53,6 +54,7 @@ let workflowCaseId;
 let reportHistoryView;
 let referenceReleaseId;
 let referenceLoad = 0;
+let suggestedPurpose;
 
 function renderScenario() {
   const matches = catalog.filter(item => item.industryCode === industry.value);
@@ -69,6 +71,8 @@ function renderScenarioContext() {
   element('scenario-context').textContent = item ? `${item.purpose} · 交付对象 ${item.recipient} · 适用规则待确认` : '';
   scenarioReferences.hidden = !item;
   if (referenceReleaseId === item?.id) return;
+  if (purpose.value === suggestedPurpose) purpose.value = '';
+  suggestedPurpose = undefined;
   referenceReleaseId = item?.id;
   referenceLoad += 1;
   referenceItems.replaceChildren();
@@ -634,7 +638,7 @@ list.addEventListener('click', async event => {
   }
 });
 
-async function openCreate(preselectedId) {
+async function openCreate({preselectedId, preselectedCode} = {}) {
   creating = true;
   element('create-error').textContent = '';
   renderList();
@@ -642,12 +646,17 @@ async function openCreate(preselectedId) {
   setBusy(true);
   try {
     await loadCatalog();
-    const preselected = catalog.find(item => item.id === preselectedId);
+    const preselected = catalog.find(item => preselectedId
+      ? item.id === preselectedId
+      : preselectedCode != null && item.code === preselectedCode);
     if (preselected) {
       industry.value = preselected.industryCode;
       renderScenario();
       scenario.value = preselected.id;
       renderScenarioContext();
+      if (!preselectedId) purpose.value = suggestedPurpose = preselected.purpose;
+    } else if (preselectedCode != null && !preselectedId) {
+      element('create-error').textContent = '此链接指向的办理场景当前不可用。请重新选择行业和办理场景。';
     }
   } catch (error) {
     industry.replaceChildren(new Option('无法读取行业', ''));
@@ -696,7 +705,7 @@ create.addEventListener('submit', async event => {
     const body = {
       orgId: context.orgId,
       scenarioReleaseId: element('scenario').value,
-      purpose: element('purpose').value
+      purpose: purpose.value
     };
     if (includeScope.checked) {
       body.scope = {
@@ -908,8 +917,10 @@ try {
   await loadPage();
   newCase.disabled = false;
   refresh.disabled = false;
-  const preselectedId = new URLSearchParams(location.search).get('scenario');
-  if (preselectedId) await openCreate(preselectedId);
+  const params = new URLSearchParams(location.search);
+  const preselectedId = params.get('scenario');
+  const preselectedCode = params.get('scenarioCode');
+  if (preselectedId || preselectedCode !== null) await openCreate({preselectedId, preselectedCode});
 } catch (error) {
   listState.textContent = '无法读取受理单';
   feedback.textContent = error.message;
