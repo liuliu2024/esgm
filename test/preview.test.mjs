@@ -124,7 +124,7 @@ test('three preview entries use the same intake and review workflow', async () =
     assert.equal(reportPage.status, 200);
     assert.match(await reportPage.text(), /\/internal-report\.mjs/);
     const catalog = await read(`/v1/customer/scenarios?orgId=${orgId}`);
-    assert.equal(catalog.items.length, 9);
+    assert.equal(catalog.items.length, 10);
     assert.ok(catalog.items.every(item => item.ruleStatus === 'needs_review'));
     const selected = catalog.items.find(item => item.code === 'carbon-intake');
     assert.equal(selected.id, scenarioReleaseId);

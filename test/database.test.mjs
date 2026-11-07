@@ -72,7 +72,11 @@ test('empty database applies migration once and replay preserves its ledger', as
     '008_calculation_snapshot.sql', '009_internal_report_draft.sql', '010_intake_scope.sql',
     '011_internal_report_review.sql', '012_factor_reference.sql', '013_factor_decision.sql',
     '014_submission_activity.sql', '015_controlled_internal_report.sql', '016_report_delivery.sql',
-    '017_electricity_factor_catalog.sql', '018_case_rule_assessment.sql', '019_scenario_rule_proposals.sql']);
+    '017_electricity_factor_catalog.sql', '018_case_rule_assessment.sql', '019_scenario_rule_proposals.sql',
+    '020_gas_combustion_inputs.sql', '021_model_trial_snapshots.sql', '022_internal_gas_report.sql',
+    '023_gas_calculation_jobs.sql',
+    '024_product_electricity_profile.sql', '025_gas_report_restatement.sql', '026_product_model_templates.sql',
+    '027_factor_disclosure.sql', '028_review_issues.sql', '029_case_reopen.sql']);
   assert.deepEqual(await migrate(db.admin), []);
   const { rows } = await db.admin.transaction(client => client.query(
     'SELECT name FROM carbon_migrations.applied ORDER BY name'));
@@ -116,7 +120,11 @@ test('upgrade a returned 001 intake and preserve two corrections and their revie
     '008_calculation_snapshot.sql', '009_internal_report_draft.sql', '010_intake_scope.sql',
     '011_internal_report_review.sql', '012_factor_reference.sql', '013_factor_decision.sql',
     '014_submission_activity.sql', '015_controlled_internal_report.sql', '016_report_delivery.sql',
-    '017_electricity_factor_catalog.sql', '018_case_rule_assessment.sql', '019_scenario_rule_proposals.sql']);
+    '017_electricity_factor_catalog.sql', '018_case_rule_assessment.sql', '019_scenario_rule_proposals.sql',
+    '020_gas_combustion_inputs.sql', '021_model_trial_snapshots.sql', '022_internal_gas_report.sql',
+    '023_gas_calculation_jobs.sql',
+    '024_product_electricity_profile.sql', '025_gas_report_restatement.sql', '026_product_model_templates.sql',
+    '027_factor_disclosure.sql', '028_review_issues.sql', '029_case_reopen.sql']);
   assert.deepEqual(await migrate(legacy.admin), []);
   const {rows: historicalSubmissions} = await act(customer, client => client.query(
     'SELECT revision FROM carbon.case_submission WHERE case_id = $1', [caseId]));

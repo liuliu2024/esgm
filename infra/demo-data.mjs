@@ -71,6 +71,21 @@ const specialistIntake = [
         reportRequirements: ['逐项说明设施与能源的统计范围', '区分账单来源、估算和缺失项', '由专业人员核对适用的盘查方法']
       }},
     references: []
+  },
+  {
+    code: 'power-generation-combustion',
+    catalog: {industryCode: 'power-generation', industryName: '发电', title: '发电设施天然气燃烧试算',
+      purpose: '核对发电设施的月度天然气燃烧用量和参数', recipient: '设施内部管理团队',
+      preparation: {
+        materials: ['设施及燃烧边界说明', '月度计量或购销存凭证及体积参比条件', '发热量、单位热值含碳量及氧化率的凭证和取值理由'],
+        reportRequirements: ['注明设施、月份、方法和参数来源', '保留固定证据及试算明细', '说明覆盖缺项与内部试算用途']
+      }},
+    references: [{
+      code: 'cets-power-2026', title: '企业温室气体排放核算与报告指南 发电设施（2026 版）',
+      publisher: '生态环境部', sourceUrl: 'https://www.mee.gov.cn/xxgk2018/xxgk/xxgk06/202606/W020260629673485282202.pdf',
+      publicationStatus: 'effective',
+      scopeNote: '供全国碳市场发电设施核对适用性。此场景仅覆盖 2026 年单设施天然气固定燃烧内部试算。'
+    }]
   }
 ];
 
@@ -117,12 +132,45 @@ export async function startDemo(options) {
         await tx.query('INSERT INTO carbon.org_grant (tenant_id, org_id, actor_id, role) VALUES ($1, $2, $3, $4)',
           [tenantId, orgId, actorId, role]);
       }
+      if (options?.sample) {
+        await tx.exec(`
+          INSERT INTO catalog.factor_reference_version (factor_id, version, accounting_basis, region_code, region_name,
+            data_year, value, input_unit, output_unit, source_title, source_url, source_locator, usage_note)
+          VALUES ('demo-summary-only',1,'product_footprint','CN','全国',2024,0.51,'kWh','kgCO2e',
+            '合成因子｜仅可披露合计','https://example.invalid/factors/summary','合成条目','仅供本机流程验收'),
+            ('demo-internal-only',1,'product_footprint','CN','全国',2024,0.52,'kWh','kgCO2e',
+            '合成因子｜仅内部使用','https://example.invalid/factors/internal','合成条目','仅供本机流程验收');
+          INSERT INTO catalog.factor_reference_disclosure (factor_id, version, scope, basis)
+          VALUES ('demo-summary-only',1,'summary_only','合成许可，仅供本机流程验收');
+        `);
+      }
     });
     const api = createCarbonApi(db.runtime, options);
+    const dispatch = (role, method, path, body, contentType) => api.dispatch({method, path, body, contentType}, {
+      tenantId, actorId: actors[role], requestId: randomUUID()
+    });
     return {
-      orgId, scenarioReleaseId,
-      dispatch: (role, method, path, body, contentType) => api.dispatch({ method, path, body, contentType }, {
-        tenantId, actorId: actors[role], requestId: randomUUID()
+      orgId, scenarioReleaseId, dispatch,
+      ...(options?.sample && {
+        async seedFixtureEvidence(caseId, title) {
+          const base = `/v1/customer/cases/${caseId}/evidence`;
+          const registered = await dispatch('customer', 'POST', base, {orgId, title, sourceDescription: '本机合成样例'});
+          if (registered.status !== 201) throw new Error(`Fixture evidence registration failed: ${registered.body.error?.code}`);
+          const evidenceId = registered.body.id;
+          const bytes = Buffer.from('%PDF-1.7\n% Carbon synthetic fixture only\n%%EOF');
+          const upload = await dispatch('customer', 'POST', `${base}/${evidenceId}/file?orgId=${orgId}`, bytes, 'application/pdf');
+          if (upload.status !== 201) throw new Error(`Fixture evidence upload failed: ${upload.body.error?.code}`);
+          await db.admin.transaction(async tx => {
+            await tx.exec('SET LOCAL ROLE carbon_scanner');
+            await tx.query("SELECT set_config('carbon.tenant_id', $1, true)", [tenantId]);
+            await tx.query(`
+              INSERT INTO carbon.evidence_scan
+                (tenant_id,org_id,case_id,evidence_id,receipt_id,sha256,verdict,engine,signature_version)
+              VALUES ($1,$2,$3,$4,$5,$6,'pass','synthetic-preview-fixture','fixture-v1')
+            `, [tenantId, orgId, caseId, evidenceId, upload.body.id, upload.body.sha256]);
+          });
+          return evidenceId;
+        }
       }),
       close: db.close
     };

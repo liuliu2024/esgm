@@ -1,13 +1,24 @@
-import { evidenceStatusLabel, getContext, internalReportHref, renderCasePreparation, renderHistory, renderRevisionEvidence, reportItemDisplay, reportTotals, request, statusLabel } from '/shared.mjs';
-import { bindFactorRegions, showFactorDecision } from '/factor-decision.mjs';
+import { evidenceStatusLabel, getContext, internalReportHref, renderCasePreparation, renderHistory, renderRevisionEvidence, reportItemDisplay, reportKind, reportTotals, request, statusLabel } from '/shared.mjs';
+import { bindFactorRegions, factorDisclosureLabel, showFactorDecision } from '/factor-decision.mjs';
 import { bindRuleAssessment } from '/rule-assessment.mjs';
+import { bindGasCombustion } from '/combustion.mjs';
+import { bindProductElectricity } from '/product-electricity.mjs';
+import { bindGasRestatement } from '/gas-restatement.mjs';
+import { bindReviewIssues } from '/review-issues.mjs';
+import { bindCaseReopen } from '/case-reopen.mjs';
 
 const queue = document.querySelector('#queue');
+const queueColumns = document.querySelector('#queue-columns');
 const queueStatus = document.querySelector('#queue-status');
 const refreshButton = document.querySelector('#refresh-queue');
 const nextPage = document.querySelector('#next-page');
 const workspaceError = document.querySelector('#workspace-error');
 const detail = document.querySelector('#case-detail');
+const caseReviewWorkspace = document.querySelector('#case-review-workspace');
+const queueWorkspace = document.querySelector('#review-queue-workspace');
+const reviewTools = document.querySelector('#review-tools');
+const dossierButtons = [...document.querySelectorAll('.dossier-nav button')];
+const detailHeading = document.querySelector('#detail-heading');
 const detailStatus = document.querySelector('#detail-status');
 const form = document.querySelector('#review-form');
 const reason = document.querySelector('#reason');
@@ -18,11 +29,21 @@ const history = document.querySelector('#history');
 const evidenceStatus = document.querySelector('#evidence-status');
 const evidenceList = document.querySelector('#evidence-list');
 const revisionEvidenceSection = document.querySelector('#revision-evidence-section');
-const showRuleAssessment = bindRuleAssessment(document.querySelector('#case-rule-assessment'));
+const reviewIssues = bindReviewIssues(document.querySelector('#review-issues'), 'professional');
+const showCaseReopen = bindCaseReopen(document.querySelector('#case-reopen'), 'professional');
 const evidenceRevision = document.querySelector('#evidence-revision');
+const combustion = bindGasCombustion(document.querySelector('#gas-combustion'), evidenceRevision);
+const showGasRestatement = bindGasRestatement(document.querySelector('#gas-restatement'), 'professional');
+const showProductElectricity = bindProductElectricity(document.querySelector('#product-electricity'));
+const showRuleAssessment = bindRuleAssessment(document.querySelector('#case-rule-assessment'));
 const revisionEvidenceStatus = document.querySelector('#revision-evidence-status');
 const revisionEvidenceError = document.querySelector('#revision-evidence-error');
 const revisionEvidenceList = document.querySelector('#revision-evidence-list');
+const revisionSummary = document.querySelector('#submission-review-summary');
+const revisionSummaryState = document.querySelector('#submission-review-state');
+const revisionSummaryError = document.querySelector('#submission-review-error');
+const revisionSummaryFields = document.querySelector('#submission-review-fields');
+const revisionSummaryChanges = document.querySelector('#submission-review-changes');
 const revisionActivity = document.querySelector('#revision-activity');
 const revisionActivityStatus = document.querySelector('#revision-activity-status');
 const revisionActivityList = document.querySelector('#revision-activity-list');
@@ -52,6 +73,9 @@ const reportStatus = document.querySelector('#report-review-status');
 const reportError = document.querySelector('#report-review-error');
 const reportDraft = document.querySelector('#report-review-draft');
 const reportTitle = document.querySelector('#report-review-title');
+const reportReleaseStatus = document.querySelector('#report-release-status');
+const reportReleaseError = document.querySelector('#report-release-error');
+const reportReleaseChecks = document.querySelector('#report-release-checks');
 const reportForm = document.querySelector('#report-review-form');
 const reportReason = document.querySelector('#report-review-reason');
 const reportApprove = document.querySelector('#report-review-approve');
@@ -60,6 +84,100 @@ const reportStates = { submitted: '待复核', reviewed: '内部复核通过', r
 const subjectTypes = { organization: '组织', facility: '设施', product: '产品', project: '项目' };
 const drafts = new Map();
 let orgId;
+const modelTemplates = document.querySelector('#model-templates');
+const templateChoice = document.querySelector('#model-template-choice');
+const templateDependencies = document.querySelector('#model-template-dependencies');
+const templateDependencyList = document.querySelector('#model-template-dependency-list');
+const templateStatus = document.querySelector('#model-template-status');
+const templateError = document.querySelector('#model-template-error');
+const templateImpacts = document.querySelector('#model-template-impacts');
+let templateItems = [];
+let templateCatalogLoad;
+let templateImpactLoad;
+
+function clearTemplateImpact() {
+  templateImpactLoad = undefined;
+  templateStatus.textContent = templateError.textContent = '';
+  templateDependencies.hidden = templateImpacts.hidden = true;
+  templateDependencyList.replaceChildren();
+  templateImpacts.replaceChildren();
+}
+
+async function loadTemplateImpact() {
+  clearTemplateImpact();
+  const template = templateItems.find(item => `${item.templateId}:${item.version}` === templateChoice.value);
+  if (!orgId || !modelTemplates.open || !template) return;
+  const {templateId, version, dependencies} = template;
+  for (const dependency of dependencies) {
+    const entry = document.createElement('li');
+    const name = templateItems.find(item => item.templateId === dependency.templateId && item.version === dependency.version)?.title;
+    entry.textContent = `${name ?? dependency.templateId} · 第 ${dependency.version} 版`;
+    templateDependencyList.append(entry);
+  }
+  templateDependencies.hidden = !dependencies.length;
+  templateStatus.textContent = '正在读取引用任务…';
+  const load = Symbol();
+  templateImpactLoad = load;
+  try {
+    const path = `/v1/professional/model-templates/${encodeURIComponent(templateId)}/versions/${version}/impact`;
+    const {total, items} = await request(`${path}?${new URLSearchParams({orgId})}`);
+    if (templateImpactLoad !== load || !modelTemplates.open) return;
+    templateImpacts.replaceChildren(...items.map(item => {
+      const entry = document.createElement('li');
+      const link = document.createElement('a');
+      link.href = `/professional?${new URLSearchParams({case: item.caseId})}`;
+      link.textContent = item.purpose;
+      const detail = document.createElement('p');
+      detail.className = 'muted';
+      const name = templateItems.find(model => model.templateId === item.modelTemplateId && model.version === item.modelTemplateVersion)?.title;
+      detail.textContent = `提交第 ${item.submissionRevision} 版 · ${name ?? item.modelTemplateId} 第 ${item.modelTemplateVersion} 版`;
+      entry.append(link, detail);
+      return entry;
+    }));
+    templateImpacts.hidden = !items.length;
+    templateStatus.textContent = total > items.length ? `${total} 次任务提交引用，仅显示前 ${items.length} 条。`
+      : total ? `${total} 次任务提交引用。` : '暂无任务提交引用此版本。';
+  } catch (failure) {
+    if (templateImpactLoad !== load || !modelTemplates.open) return;
+    templateStatus.textContent = '';
+    templateError.textContent = failure.message;
+  }
+}
+
+async function loadModelTemplates() {
+  clearTemplateImpact();
+  if (!orgId || !modelTemplates.open) return;
+  const load = Symbol();
+  const selected = templateChoice.value;
+  templateCatalogLoad = load;
+  templateChoice.disabled = true;
+  templateStatus.textContent = '正在读取模型模板…';
+  try {
+    const {items} = await request(`/v1/professional/model-templates?${new URLSearchParams({orgId})}`);
+    if (templateCatalogLoad !== load || !modelTemplates.open) return;
+    templateItems = items;
+    templateChoice.replaceChildren(new Option('请选择模板版本', ''), ...items.map(item =>
+      new Option(`${item.title} · 第 ${item.version} 版`, `${item.templateId}:${item.version}`)));
+    if ([...templateChoice.options].some(option => option.value === selected)) templateChoice.value = selected;
+    templateChoice.disabled = !items.length;
+    templateStatus.textContent = items.length ? '' : '暂无可查的模型模板。';
+    if (templateChoice.value) void loadTemplateImpact();
+  } catch (failure) {
+    if (templateCatalogLoad !== load || !modelTemplates.open) return;
+    templateStatus.textContent = '';
+    templateError.textContent = failure.message;
+  }
+}
+
+modelTemplates.addEventListener('toggle', () => {
+  if (modelTemplates.open) void loadModelTemplates();
+  else {
+    templateCatalogLoad = undefined;
+    clearTemplateImpact();
+  }
+});
+templateChoice.addEventListener('change', () => void loadTemplateImpact());
+let queueCaseId;
 const ruleProposalPanel = document.querySelector('#rule-proposal-review');
 const ruleProposalStatus = document.querySelector('#rule-proposal-review-status');
 const ruleProposalError = document.querySelector('#rule-proposal-review-error');
@@ -261,11 +379,69 @@ async function loadRevisionEvidence() {
     const { items } = await request(`${view.base}/revisions/${evidenceRevision.value}/evidence?${new URLSearchParams({ orgId })}`);
     if (revisionEvidenceView !== view || view.selection !== selection) return;
     renderRevisionEvidence(revisionEvidenceList, items);
+    reviewIssues.setEvidence(Number(evidenceRevision.value), items);
+    combustion.setEvidence(items);
     revisionEvidenceStatus.textContent = items.length ? '' : '该版本未绑定证据。';
   } catch (error) {
     if (revisionEvidenceView !== view || view.selection !== selection) return;
     revisionEvidenceStatus.textContent = '';
     revisionEvidenceError.textContent = error.message;
+    combustion.setEvidence([], '未能读取该版本的固定证据。');
+  }
+}
+
+async function loadRevisionSummary() {
+  const view = revisionEvidenceView;
+  const revision = evidenceRevision.value;
+  if (!view || !revision) return;
+  const token = Symbol();
+  view.summarySelection = token;
+  const active = () => revisionEvidenceView === view && view.summarySelection === token
+    && evidenceRevision.value === revision && !caseReviewWorkspace.hidden;
+  revisionSummary.hidden = false;
+  revisionSummaryFields.hidden = revisionSummaryChanges.hidden = true;
+  revisionSummaryFields.replaceChildren();
+  revisionSummaryChanges.replaceChildren();
+  revisionSummaryState.textContent = '正在读取版本摘要…';
+  revisionSummaryError.textContent = '';
+  try {
+    const data = await request(`${view.base}/revisions/${revision}/review-summary?${new URLSearchParams({orgId})}`);
+    if (!active()) return;
+    const rules = {confirmed: '已确认', needs_review: '待核实', not_recorded: '未记录'};
+    const fields = [
+      ['固定证据', `${data.evidenceCount} 项`],
+      ['活动数据', data.activityStatus === 'captured' ? `${data.activityCount} 项` : '历史版本未留存'],
+      ['适用规则', rules[data.ruleStatus]],
+      ['因子版本', data.factorVersion ? `${data.factorVersion.id} · 第 ${data.factorVersion.version} 版` : '未记录'],
+      ['未关闭问题', `${data.openIssueCount} 项 · 关键 ${data.criticalIssueCount} 项`]
+    ];
+    for (const [label, value] of fields) {
+      const field = document.createElement('div');
+      const name = document.createElement('dt');
+      const detail = document.createElement('dd');
+      name.textContent = label;
+      detail.textContent = value;
+      field.append(name, detail);
+      revisionSummaryFields.append(field);
+    }
+    revisionSummaryFields.hidden = false;
+    revisionSummaryState.textContent = `提交第 ${data.submissionRevision} 版`;
+    if (data.changes && data.previousRevision !== null) {
+      const title = document.createElement('h4');
+      title.textContent = `与提交第 ${data.previousRevision} 版相比`;
+      const describe = (label, change) => {
+        const line = document.createElement('p');
+        line.textContent = change ? `${label} · 新增 ${change.added} · 移除 ${change.removed} · 变更 ${change.changed}`
+          : `${label} · 有版本未留存，无法比较`;
+        return line;
+      };
+      revisionSummaryChanges.append(title, describe('证据', data.changes.evidence), describe('活动数据', data.changes.activity));
+      revisionSummaryChanges.hidden = false;
+    }
+  } catch (failure) {
+    if (!active()) return;
+    revisionSummaryState.textContent = '';
+    revisionSummaryError.textContent = failure.message;
   }
 }
 
@@ -297,7 +473,7 @@ async function loadReports(view, after = null) {
       button.type = 'button';
       button.dataset.draftId = item.draftId;
       const date = new Date(item.createdAt).toLocaleString('zh-CN');
-      button.textContent = `${item.mode === 'controlled' ? '内部管理稿' : '演示稿'} · ${item.from} 至 ${item.to} · ${date} · ${reportStates[item.reviewStatus]}`;
+      button.textContent = `${reportKind(item.mode)} · ${item.from} 至 ${item.to} · ${date} · ${reportStates[item.reviewStatus]}`;
       button.addEventListener('click', () => void loadReport(view, item.draftId, true));
       row.append(button);
       reportList.append(row);
@@ -349,7 +525,42 @@ function drawReport(view, { draft, review }) {
   document.querySelector('#report-review-decision').textContent = [reportStates[review.status],
     review.reviewedAt && new Date(review.reviewedAt).toLocaleString('zh-CN'), review.reason].filter(Boolean).join(' · ');
   reportDraft.hidden = false;
-  reportForm.hidden = review.status !== 'submitted' || !['submitted', 'approved'].includes(view.caseStatus);
+  const currentSubmission = view.caseStatus === 'approved' ? view.caseRevision - 1 : view.caseRevision;
+  reportForm.hidden = review.status !== 'submitted' || !['submitted', 'approved'].includes(view.caseStatus)
+    || (draft.mode === 'internal_trial' && report.scope.submissionRevision !== currentSubmission);
+}
+
+async function loadReleaseReadiness(view, draftId) {
+  const token = Symbol();
+  view.releaseRead = token;
+  const active = () => reportView === view && view.releaseRead === token && view.current?.draft.draftId === draftId
+    && !caseReviewWorkspace.hidden;
+  reportReleaseStatus.textContent = '正在核对正式发布条件…';
+  reportReleaseError.textContent = '';
+  reportReleaseChecks.replaceChildren();
+  reportReleaseChecks.hidden = true;
+  try {
+    const path = `${view.base}/${encodeURIComponent(draftId)}/release-readiness`;
+    const {canPublish, criticalIssueCount, checks} = await request(`${path}?${new URLSearchParams({orgId})}`);
+    if (!active()) return;
+    const labels = {
+      approved_case: '受理已批准', current_submission: '稿件对应当前有效提交', declared_scope: '已登记申报范围',
+      complete_coverage: '所选期间数据覆盖完整', independent_review: '独立报告复核已通过',
+      no_critical_issues: '关键问题已全部关闭', formal_eligibility: '满足正式报告资格'
+    };
+    for (const {code, passed} of checks) {
+      const item = document.createElement('li');
+      const count = code === 'no_critical_issues' ? ` · 未关闭 ${criticalIssueCount} 项` : '';
+      item.textContent = `${passed ? '通过' : '待满足'} · ${labels[code] ?? code}${count}`;
+      reportReleaseChecks.append(item);
+    }
+    reportReleaseChecks.hidden = false;
+    reportReleaseStatus.textContent = canPublish ? '已满足发布条件。' : '当前稿件不可正式发布。';
+  } catch (failure) {
+    if (!active()) return;
+    reportReleaseStatus.textContent = '';
+    reportReleaseError.textContent = failure.message;
+  }
 }
 
 async function loadReport(view, draftId, focus = false) {
@@ -369,6 +580,7 @@ async function loadReport(view, draftId, focus = false) {
     view.current = { ...result, url };
     reportStatus.textContent = '';
     drawReport(view, result);
+    void loadReleaseReadiness(view, draftId);
     if (focus) reportTitle.focus();
   } catch (error) {
     if (reportView !== view || view.selection !== selection) return;
@@ -390,6 +602,7 @@ async function decideReport(decision) {
     if (reportView !== view) return;
     current.review = review;
     drawReport(view, current);
+    void loadReleaseReadiness(view, current.draft.draftId);
     reportTitle.focus();
     reportStatus.textContent = reportStates[review.status];
     void loadReports(view);
@@ -408,10 +621,39 @@ function setStatus(element, status) {
   element.textContent = statusLabel(status);
 }
 
+function showDossierSection(active) {
+  for (const button of dossierButtons) {
+    const selected = button === active;
+    button.setAttribute('aria-pressed', String(selected));
+    document.getElementById(button.getAttribute('aria-controls')).hidden = !selected;
+  }
+  if (active.getAttribute('aria-controls') === 'dossier-reports') reportPanel.open = true;
+}
+
+for (const button of dossierButtons) {
+  button.addEventListener('click', () => showDossierSection(button));
+}
+
+for (const link of document.querySelectorAll('[data-review-home]')) {
+  link.addEventListener('click', event => {
+    if (caseReviewWorkspace.hidden) return;
+    event.preventDefault();
+    viewing = undefined;
+    reviewIssues.show();
+    showCaseReopen();
+    showGasRestatement();
+    caseReviewWorkspace.hidden = true;
+    queueWorkspace.hidden = reviewTools.hidden = false;
+    const task = link.hasAttribute('data-return-to-task')
+      ? queue.querySelector('[aria-current="true"]') : null;
+    (task ?? document.querySelector(link.hash)).focus();
+  });
+}
+
 function drawCase(item, canReview) {
   setStatus(document.querySelector('#case-status'), item.status);
   document.querySelector('#case-revision').textContent = `第 ${item.revision} 版`;
-  document.querySelector('#purpose').textContent = item.purpose;
+  detailHeading.textContent = item.purpose;
   renderCasePreparation(document.querySelector('#case-scenario-preparation'), item.id, item.scenarioPreparation);
   const { scope } = item;
   document.querySelector('#scope-section').hidden = !scope;
@@ -429,13 +671,23 @@ function drawCase(item, canReview) {
   document.querySelector('#preserved-reason-text').textContent = reason.value;
   form.hidden = !canReview;
   detail.hidden = false;
+  if (dossierButtons[2].getAttribute('aria-pressed') === 'true') reportPanel.open = true;
   detailStatus.textContent = '';
 }
 
 async function loadCase(item, focus = false) {
+  if (focus) showDossierSection(dossierButtons[0]);
+  queueCaseId = item.id;
+  for (const button of queue.querySelectorAll('[data-case-id]')) {
+    button.setAttribute('aria-current', String(button.dataset.caseId === queueCaseId));
+  }
+  caseReviewWorkspace.hidden = false;
+  queueWorkspace.hidden = reviewTools.hidden = true;
+  detailHeading.textContent = item.purpose ?? '复核案卷';
   const selection = Symbol();
   viewing = selection;
   revisionEvidenceView = undefined;
+  revisionSummary.hidden = true;
   revisionEvidenceSection.hidden = true;
   revisionActivity.open = false;
   revisionCalculation.open = false;
@@ -443,10 +695,16 @@ async function loadCase(item, focus = false) {
   clearRevisionCalculation();
   showFactorDecision();
   showRuleAssessment();
+  combustion.show();
+  showGasRestatement();
+  reviewIssues.show();
+  showCaseReopen();
+  showProductElectricity();
   resetReportView();
   detail.hidden = true;
   detailStatus.textContent = '正在加载详情';
   reviewError.textContent = '';
+  if (focus) detailHeading.focus();
   try {
     const base = `/v1/professional/cases/${encodeURIComponent(item.id)}`;
     const query = new URLSearchParams({ orgId });
@@ -457,13 +715,22 @@ async function loadCase(item, focus = false) {
     if (viewing !== selection) return;
     const canReview = item.nextAction === 'review' && current.status === 'submitted';
     selected = { ...current, nextAction: canReview ? 'review' : 'none' };
-    reportView = { base: `${base}/internal-report-drafts`, caseStatus: current.status };
+    if (current.status === 'approved' && current.scope?.reportingYear) showCaseReopen({caseId: current.id, orgId});
+    if (current.gasCombustionAvailable) showGasRestatement({caseId: current.id, orgId, revision: current.revision});
+    reportView = { base: `${base}/internal-report-drafts`, caseStatus: current.status, caseRevision: current.revision };
     const submitted = events.filter(event => event.action === 'submitted').sort((a, b) => b.revision - a.revision);
     evidenceRevision.replaceChildren(...submitted.map(event => new Option(`第 ${event.revision} 版`, event.revision)));
     revisionEvidenceSection.hidden = !submitted.length;
     if (submitted.length) {
       revisionEvidenceView = { base };
+      reviewIssues.show({caseId: current.id, orgId});
+      reviewIssues.setRevision(submitted[0].revision);
+      if (current.gasCombustionAvailable) combustion.show({base, orgId, revision: submitted[0].revision,
+        canRecord: canReview && submitted[0].revision === current.revision});
+      if (current.productElectricityAvailable) showProductElectricity({base, orgId, revision: submitted[0].revision,
+        reportingYear: current.scope?.reportingYear, canRecord: canReview && submitted[0].revision === current.revision});
       void loadRevisionEvidence();
+      void loadRevisionSummary();
       showFactorDecision({base, orgId, revision: submitted[0].revision,
         canDecide: canReview && submitted[0].revision === current.revision});
       showRuleAssessment({base, orgId, revision: submitted[0].revision,
@@ -474,7 +741,6 @@ async function loadCase(item, focus = false) {
     evidenceStatus.textContent = '正在加载材料';
     drawCase(current, canReview);
     renderHistory(history, events);
-    if (focus) document.querySelector('#detail-heading').focus();
     void request(`${base}/evidence?${query}`).then(({ items }) => {
       if (viewing !== selection) return;
       for (const item of items) {
@@ -513,21 +779,32 @@ async function loadQueue(append = false) {
     if (!append) queue.replaceChildren();
     for (const item of page.cases) {
       const row = document.createElement('li');
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.textContent = item.purpose;
-      button.addEventListener('click', () => {
-        if (!saving) void loadCase(item, true);
-      });
+      const purpose = document.createElement('strong');
+      purpose.className = 'queue-purpose';
+      purpose.textContent = item.purpose;
       const status = document.createElement('span');
       status.className = 'status';
       setStatus(status, item.status);
-      row.append(button, ' ', status);
+      const version = document.createElement('span');
+      version.className = 'muted';
+      version.textContent = `第 ${item.revision} 版`;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = item.nextAction === 'review' ? 'queue-action primary' : 'queue-action';
+      button.dataset.caseId = item.id;
+      button.textContent = item.nextAction === 'review' ? '开始复核' : '查看记录';
+      button.setAttribute('aria-label', `${button.textContent}：${item.purpose}`);
+      button.setAttribute('aria-current', String(item.id === queueCaseId));
+      button.addEventListener('click', () => {
+        if (!saving) void loadCase(item, true);
+      });
+      row.append(purpose, status, version, button);
       queue.append(row);
     }
     cursor = page.nextCursor;
     nextPage.hidden = !cursor;
     queue.hidden = queue.children.length === 0;
+    queueColumns.hidden = queue.hidden;
     queueStatus.textContent = queue.hidden ? '暂无复核任务' : '';
     return page.cases;
   } catch (error) {
@@ -543,18 +820,27 @@ async function decide(decision) {
   saving = approveButton.disabled = returnButton.disabled = reason.disabled = true;
   reviewError.textContent = '';
   const item = selected;
+  const selection = viewing;
   const body = { orgId, revision: item.revision, decision };
   if (decision === 'returned') body.reason = reason.value.trim();
   try {
     await request(`/v1/professional/cases/${item.id}/review`, body);
     drafts.delete(item.id);
-    await Promise.all([loadQueue(), loadCase({ ...item, nextAction: 'none' })]);
-    detailStatus.textContent = decision === 'approved' ? '已批准' : '已退回补正';
+    if (viewing === selection) {
+      await Promise.all([loadQueue(), loadCase({ ...item, nextAction: 'none' })]);
+      if (!caseReviewWorkspace.hidden) detailStatus.textContent = decision === 'approved' ? '已批准' : '已退回补正';
+    } else {
+      await loadQueue();
+    }
   } catch (error) {
     if (error.status === 409) {
-      await Promise.all([loadQueue(), loadCase(item)]);
-      reviewError.textContent = '任务已更新。请核对最新版本，未提交理由已保留。';
-    } else {
+      if (viewing === selection) {
+        await Promise.all([loadQueue(), loadCase(item)]);
+        reviewError.textContent = '任务已更新。请核对最新版本，未提交理由已保留。';
+      } else {
+        await loadQueue();
+      }
+    } else if (viewing === selection) {
       reviewError.textContent = error.message;
     }
   } finally {
@@ -572,9 +858,15 @@ reportPanel.addEventListener('toggle', () => {
 evidenceRevision.addEventListener('change', () => {
   if (!revisionEvidenceView || !selected) return;
   clearRevisionCalculation();
-  void loadRevisionEvidence();
-  void loadRevisionActivity();
   const revision = Number(evidenceRevision.value);
+  reviewIssues.setRevision(revision);
+  combustion.show(selected.gasCombustionAvailable ? {base: revisionEvidenceView.base, orgId, revision,
+    canRecord: selected.nextAction === 'review' && selected.revision === revision} : undefined);
+  showProductElectricity(selected.productElectricityAvailable ? {base: revisionEvidenceView.base, orgId, revision,
+    reportingYear: selected.scope?.reportingYear, canRecord: selected.nextAction === 'review' && selected.revision === revision} : undefined);
+  void loadRevisionEvidence();
+  void loadRevisionSummary();
+  void loadRevisionActivity();
   showFactorDecision({base: revisionEvidenceView.base, orgId, revision,
     canDecide: selected.nextAction === 'review' && selected.revision === revision});
   showRuleAssessment({base: revisionEvidenceView.base, orgId, revision,
@@ -650,7 +942,7 @@ factorForm.addEventListener('submit', async event => {
       source.target = '_blank';
       source.rel = 'noopener noreferrer';
       source.textContent = `${item.sourceTitle} · ${item.sourceLocator}`;
-      note.textContent = item.usageNote;
+      note.textContent = [item.usageNote, factorDisclosureLabel(item.disclosureScope)].filter(Boolean).join(' · ');
       const reference = document.createElement('p');
       reference.append(source);
       row.append(value, reference, note);
@@ -668,6 +960,7 @@ factorForm.addEventListener('submit', async event => {
 });
 try {
   ({ orgId } = await getContext('professional'));
+  if (modelTemplates.open) void loadModelTemplates();
   if (ruleProposalPanel.open) void loadRuleProposals();
   void factorRegions.load();
   const page = await loadQueue();

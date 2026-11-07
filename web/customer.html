@@ -6,8 +6,21 @@
   <title>企业工作台</title>
   <link rel="stylesheet" href="/shared.css">
   <style>
-    body { --paper: #f4f6f9; --surface: #fff; --ink: #18263a; --muted: #465670; --line: #d5dce6; --accent: #1c487d; --accent-soft: #eaf2fc; }
-    .brand { color: var(--accent); font-weight: 700; margin-bottom: 5px; }
+    body { --paper: #f6f9f7; --surface: #fff; --ink: #172b29; --muted: #4c615e; --line: #d9e6e1; --accent: #14725c; --accent-soft: #e4f4ec; }
+    .customer-brand { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; font-weight: 750; color: var(--ink); }
+    .customer-brand svg { flex-shrink: 0; }
+    .customer-hero { background: var(--accent-soft); border: 1px solid #c9e8da; padding: clamp(18px, 4vw, 34px); border-radius: 18px; margin-bottom: 22px; gap: 16px; }
+    .customer-flow { display: grid; gap: 16px; }
+    #case-workspace { scroll-margin-top: 12px; }
+    #cases { display: grid; gap: 9px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+    #cases li { margin: 0; }
+    #cases button { height: 100%; align-items: flex-start; padding: 12px; }
+    .case-card-title { font-weight: 650; }
+    .case-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 12px; background: var(--accent-soft); border-radius: var(--radius); padding: 10px 12px; }
+    .case-progress ol { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 0; margin: 0; list-style: none; }
+    .case-progress li { color: var(--muted); }
+    .case-progress [aria-current="step"] { color: var(--ink); font-weight: 750; }
+    .case-progress a { margin-inline-start: auto; }
     .task-list { list-style: none; padding: 0; margin: 12px 0; }
     .task-list button { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; text-align: left; }
     .task-list button[aria-current="true"] { border-color: var(--accent); background: var(--accent-soft); }
@@ -41,22 +54,29 @@
 </head>
 <body>
   <header class="heading">
-    <div><p class="brand"><a href="/">碳有据首页</a></p><h1>企业工作台</h1></div>
-    <button id="new-case" class="primary" type="button" disabled>新建受理</button>
+    <a class="customer-brand" href="/">
+      <svg aria-hidden="true" viewBox="0 0 40 40" width="32" height="32"><rect width="40" height="40" rx="12" fill="#0b8b68"/><path d="M28 12a12 12 0 1 0 0 16M15 21l4 4 8-9" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="31" cy="12" r="2" fill="#d3f9b6"/></svg>
+      碳有据
+    </a>
+    <a href="/modules">业务目录</a>
   </header>
   <main>
+    <section class="customer-hero heading" aria-labelledby="customer-heading">
+      <h1 id="customer-heading">企业工作台</h1>
+      <button id="new-case" class="primary" type="button" disabled>发起业务</button>
+    </section>
     <p id="feedback" role="status"></p>
-    <div class="layout">
+    <div class="customer-flow">
       <section class="panel" aria-labelledby="list-heading">
         <div class="heading">
-          <h2 id="list-heading">我的受理单</h2>
+          <h2 id="list-heading">我的办理</h2>
           <button id="refresh" type="button" disabled>刷新</button>
         </div>
         <p id="list-state" class="muted">正在读取…</p>
         <ul id="cases" class="task-list"></ul>
         <button id="next-page" type="button" hidden>加载更多</button>
       </section>
-      <section class="panel" aria-label="受理单">
+      <section class="panel" id="case-workspace" aria-label="办理详情" hidden>
         <p id="placeholder" class="muted">请选择受理单。</p>
         <form id="create" hidden>
           <div class="heading">
@@ -118,6 +138,14 @@
             <span id="case-status" class="status"></span>
           </div>
           <p id="case-revision" class="muted"></p>
+          <nav class="case-progress" aria-label="办理进度">
+            <ol>
+              <li data-case-step="prepare">1. 准备材料</li>
+              <li data-case-step="review">2. 专业复核</li>
+              <li data-case-step="result">3. 查看结果</li>
+            </ol>
+            <a id="case-next-action" href="#evidence-heading">准备材料</a>
+          </nav>
           <details id="case-scenario-preparation" hidden>
             <summary>受理时的准备材料与报告要求</summary>
             <div></div>
@@ -175,6 +203,96 @@
             <summary>上次提交引用的材料</summary>
             <p id="case-revision-evidence-state" class="muted" role="status"></p>
             <ul id="case-revision-evidence-items" class="history-list" hidden></ul>
+          </details>
+          <details id="review-issues" hidden>
+            <summary>复核问题与答复</summary>
+            <div class="stack">
+              <p data-issue-state role="status"></p>
+              <p data-issue-error role="alert"></p>
+              <button data-issue-refresh type="button">刷新问题</button>
+              <ul data-issue-items class="history-list" hidden></ul>
+            </div>
+          </details>
+          <details id="case-reopen" hidden>
+            <summary>锁定年度与重开</summary>
+            <div class="stack">
+              <p data-reopen-status role="status"></p>
+              <p data-reopen-error role="alert"></p>
+              <div data-reopen-impact class="stack" hidden></div>
+              <button data-reopen-refresh type="button">刷新重开状态</button>
+              <form data-reopen-request hidden>
+                <label>重开原因 <textarea name="reason" maxlength="500" required></textarea></label>
+                <button type="submit">提交重开申请</button>
+              </form>
+              <ul data-reopen-requests class="history-list" hidden></ul>
+            </div>
+          </details>
+          <details id="product-electricity" hidden>
+            <summary>生产用电分项试算</summary>
+            <div class="stack">
+              <p class="muted">当多种产品共用电表时，可查看这项产品分摊的用电排放。</p>
+              <label for="product-electricity-revision">提交版本</label>
+              <select id="product-electricity-revision" data-product-revision disabled></select>
+              <p data-product-state role="status"></p>
+              <p data-product-error role="alert"></p>
+              <div data-product-result class="stack" hidden></div>
+              <details data-product-comparison>
+                <summary>提交版本对比</summary>
+                <form class="actions" hidden>
+                  <label>基准提交 <select name="baseline" required></select></label>
+                  <label>对比提交 <select name="target" required></select></label>
+                  <button type="submit">查看用电排放差额</button>
+                </form>
+                <p data-comparison-state role="status"></p>
+                <p data-comparison-error role="alert"></p>
+                <div data-comparison-result class="stack" hidden></div>
+              </details>
+            </div>
+          </details>
+          <details id="gas-snapshots" hidden>
+            <summary>天然气试算快照</summary>
+            <div class="stack">
+              <p class="muted">仅供内部核对。标准体积参比条件为 20℃、101.325 kPa。</p>
+              <label for="gas-snapshot-revision">提交版本</label>
+              <select id="gas-snapshot-revision" disabled></select>
+              <p id="gas-snapshot-status" role="status"></p>
+              <p id="gas-snapshot-error" role="alert"></p>
+              <ul id="gas-snapshot-list" class="task-list" hidden></ul>
+              <form id="gas-snapshot-form" class="stack" hidden>
+                <div class="actions">
+                  <label>起始月 <input name="from" type="month" min="2026-01" max="2026-12" value="2026-01" required></label>
+                  <label>结束月 <input name="to" type="month" min="2026-01" max="2026-12" value="2026-01" required></label>
+                  <button type="submit">立即冻结试算快照</button>
+                  <button id="gas-job-create" type="submit">提交后台试算</button>
+                </div>
+                <p id="gas-snapshot-save-error" role="alert"></p>
+              </form>
+              <article id="gas-snapshot-result" class="notice stack" tabindex="-1" hidden></article>
+              <section class="stack" aria-labelledby="gas-jobs-heading">
+                <div class="heading">
+                  <h3 id="gas-jobs-heading">后台试算作业</h3>
+                  <button id="gas-jobs-refresh" type="button">刷新作业</button>
+                </div>
+                <p id="gas-jobs-status" role="status"></p>
+                <p id="gas-jobs-error" role="alert"></p>
+                <ul id="gas-jobs-list" class="task-list" hidden></ul>
+                <article id="gas-job-detail" class="notice stack" hidden></article>
+              </section>
+              <details id="gas-restatement" hidden>
+                <summary>天然气报告重述</summary>
+                <div class="stack">
+                  <p data-restatement-state role="status"></p>
+                  <p data-restatement-error role="alert"></p>
+                  <button data-restatement-refresh type="button">刷新申请</button>
+                  <ul data-restatement-items class="history-list" hidden></ul>
+                  <form data-restatement-request hidden>
+                    <label>基准与目标快照 <select name="pair" required></select></label>
+                    <label>重述原因 <textarea name="reason" maxlength="500" required></textarea></label>
+                    <button type="submit">提交重述申请</button>
+                  </form>
+                </div>
+              </details>
+            </div>
           </details>
           <details id="activity-workflow">
             <summary>活动数据与报告</summary>
@@ -248,11 +366,12 @@
       <summary>采购方交付件</summary>
       <div class="stack">
         <p class="muted">由企业自行交付。下载文件后，请登记实际交付凭证。</p>
+        <p class="report-delivery-policy muted" hidden></p>
         <form class="report-delivery-create-form">
           <label>具名收件方 <input name="recipient" maxlength="120" required></label>
           <label>交付用途 <input name="purpose" maxlength="300" required></label>
           <label class="scope-toggle"><input name="includeMonthly" type="checkbox">包含逐月明细</label>
-          <label class="scope-toggle"><input name="includeFactor" type="checkbox">包含公开因子来源</label>
+          <label class="scope-toggle"><input name="includeFactor" type="checkbox">包含公开因子来源与数值</label>
           <button class="report-delivery-create primary" type="submit">准备采购方交付件</button>
         </form>
         <p class="report-delivery-state" role="status"></p>

@@ -1,8 +1,8 @@
 const escapes = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
 const escape = value => String(value).replace(/[&<>"']/g, character => escapes[character]);
 
-export function renderDeliveryDocument(draft, deliveryId, {recipient, purpose, includeMonthly, includeFactor}) {
-  const {scope, summary, items, factorDecision} = draft.report;
+export function renderDeliveryDocument(draft, deliveryId, {recipient, purpose, includeMonthly, includeFactor}, factor) {
+  const {scope, summary, items} = draft.report;
   const unit = summary.outputUnit === 'kgCO2' ? 'kg CO₂' : 'kg CO₂e';
   const monthly = includeMonthly ? `
     <h2>月度汇总</h2>
@@ -10,10 +10,10 @@ export function renderDeliveryDocument(draft, deliveryId, {recipient, purpose, i
     ${items.map(item => `<tr><td>${escape(item.period)}</td><td>${escape(item.quantity)} kWh</td>
       <td>${escape(item.emissionsKg)} ${unit}</td></tr>`).join('')}
     </tbody></table>` : '';
-  const factor = factorDecision.factor;
   const source = includeFactor ? `
     <h2>公开因子来源</h2>
-    <p>${escape(factor.dataYear)} 年 · ${escape(factor.regionCode)} · 第 ${escape(factor.version)} 版 ·
+    <p>${factor.accountingBasis === 'product_footprint' ? '产品电力碳足迹' : '电力消费二氧化碳排放'} ·
+      ${escape(factor.dataYear)} 年 · ${escape(factor.regionCode)} · 第 ${escape(factor.version)} 版 ·
       ${escape(factor.value)} ${unit}/kWh</p>
     <p><a href="${escape(factor.sourceUrl)}" rel="noopener noreferrer">${escape(factor.sourceTitle)}</a>
       · ${escape(factor.sourceLocator)}</p>` : '';

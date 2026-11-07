@@ -1,5 +1,9 @@
 import { request } from './shared.mjs';
 
+export const factorDisclosureLabel = scope => ({
+  source_and_value: '可披露来源与数值', summary_only: '仅可披露汇总排放', internal_only: '仅限内部使用'
+})[scope] ?? '';
+
 export function bindFactorRegions({basis, year, region, search, status, error, retry, getOrgId, clearResults}) {
   let sequence = 0;
 
@@ -115,6 +119,13 @@ function renderDecision({factor, methodReference, rationale, decidedAt, submissi
   reason.textContent = `适用依据：${rationale}`;
   status.textContent = `第 ${submissionRevision} 版已记录 · ${new Date(decidedAt).toLocaleString('zh-CN')}`;
   result.replaceChildren(detail, link, basisNote, reason);
+  const disclosure = factorDisclosureLabel(factor.disclosureScope);
+  if (disclosure) {
+    const scope = document.createElement('p');
+    scope.className = 'muted';
+    scope.textContent = `披露范围 · ${disclosure}`;
+    result.append(scope);
+  }
   result.hidden = false;
   form.hidden = true;
 }
@@ -142,7 +153,8 @@ panel.addEventListener('toggle', async () => {
 
 choice.addEventListener('change', () => {
   const item = candidates[choice.value] ?? null;
-  source.textContent = item ? `${item.sourceTitle} · ${item.sourceLocator}。${item.usageNote}` : '';
+  const disclosure = factorDisclosureLabel(item?.disclosureScope);
+  source.textContent = item ? [item.sourceTitle, item.sourceLocator, item.usageNote, disclosure].filter(Boolean).join(' · ') : '';
   save.disabled = !item;
 });
 

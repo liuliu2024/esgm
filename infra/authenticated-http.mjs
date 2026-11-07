@@ -54,7 +54,8 @@ export function createAuthenticatedHandler({api, authenticate, publicOrigin}) {
       let body;
       const contentType = headers['content-type']?.split(';')[0].trim().toLowerCase();
       if (method === 'POST') {
-        const upload = evidenceUpload.test(path.split('?')[0]);
+        const pathname = path.split('?')[0];
+        const upload = evidenceUpload.test(pathname);
         const accepted = upload ? contentType === 'application/pdf' || contentType === 'image/png' : contentType === 'application/json';
         if (!accepted) {
           if (upload) reject(415, 'EVIDENCE_TYPE_REQUIRED', '请提供 PDF 或 PNG 文件。');

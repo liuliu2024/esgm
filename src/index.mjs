@@ -16,9 +16,30 @@ const routes = {
   adminRuleProposals: /^\/v1\/admin\/organizations\/([^/]+)\/rule-proposals$/,
   reviewRuleProposal: /^\/v1\/professional\/rule-proposals\/([^/]+)\/review$/,
   ruleRecalculation: /^\/v1\/customer\/cases\/([^/]+)\/rule-recalculation$/,
+  gasCombustion: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/gas-combustion$/,
+  productElectricity: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/product-electricity$/,
+  productElectricityComparison: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/product-electricity\/comparison$/,
+  modelTemplateImpact: /^\/v1\/professional\/model-templates\/([a-z0-9-]+)\/versions\/([^/]+)\/impact$/,
+  gasCombustionSnapshots: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/gas-combustion\/snapshots$/,
+  gasCombustionSnapshot: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/gas-combustion\/snapshots\/([^/]+)$/,
+  gasCombustionComparison: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/gas-combustion\/comparison$/,
+  gasRestatements: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/gas-combustion\/restatements$/,
+  gasRestatementReview: /^\/v1\/professional\/cases\/([^/]+)\/gas-combustion\/restatements\/([^/]+)\/review$/,
+  gasCombustionReportDraft: /^\/v1\/customer\/cases\/([^/]+)\/revisions\/([^/]+)\/gas-combustion\/snapshots\/([^/]+)\/internal-report-draft$/,
+  enqueueGasCalculationJob: /^\/v1\/customer\/cases\/([^/]+)\/revisions\/([^/]+)\/gas-combustion\/jobs$/,
+  gasCalculationJobs: /^\/v1\/customer\/cases\/([^/]+)\/gas-combustion\/jobs(?:\/([^/]+))?$/,
+  gasCalculationJobAction: /^\/v1\/customer\/cases\/([^/]+)\/gas-combustion\/jobs\/([^/]+)\/(cancel|retry)$/,
   cases: /^\/v1\/(customer|professional)\/cases$/,
   case: /^\/v1\/(customer|professional)\/cases\/([^/]+)$/,
   history: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/history$/,
+  reviewIssues: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/review-issues$/,
+  reviewSummary: /^\/v1\/professional\/cases\/([^/]+)\/revisions\/([^/]+)\/review-summary$/,
+  reportReleaseReadiness: /^\/v1\/professional\/cases\/([^/]+)\/internal-report-drafts\/([^/]+)\/release-readiness$/,
+  reopenImpact: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/reopen-impact$/,
+  reopenRequests: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/reopen-requests$/,
+  reviewReopenRequest: /^\/v1\/professional\/cases\/([^/]+)\/reopen-requests\/([^/]+)\/review$/,
+  createReopenedDraft: /^\/v1\/customer\/cases\/([^/]+)\/reopen-requests\/([^/]+)\/draft$/,
+  reviewIssueAction: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/review-issues\/([^/]+)\/(reply|request-follow-up|close)$/,
   evidence: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/evidence$/,
   revisionEvidence: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/evidence$/,
   revisionActivities: /^\/v1\/(customer|professional)\/cases\/([^/]+)\/revisions\/([^/]+)\/activities$/,
@@ -94,6 +115,21 @@ function revision(value) {
 function revisionParam(value) {
   if (!/^\d+$/.test(value)) badRequest('任务版本必须为正整数。');
   return revision(Number(value));
+}
+
+function combustionMonth(value) {
+  if (typeof value !== 'string' || !monthPattern.test(value) || !value.startsWith('2026-')) {
+    badRequest('请选择 2026 年的有效月份。');
+  }
+  return value;
+}
+
+function combustionDecimal(value, label, integerDigits, fractionDigits, minimumExclusive = false) {
+  const decimal = new RegExp(`^(?:0|[1-9]\\d{0,${integerDigits - 1}})(?:\\.\\d{1,${fractionDigits}})?$`);
+  if (typeof value !== 'string' || !decimal.test(value) || (minimumExclusive && Number(value) === 0)) {
+    badRequest(`请填写有效的${label}。`);
+  }
+  return value;
 }
 
 function proposedRuleReferences(input) {
@@ -245,6 +281,16 @@ function errorResponse(error) {
   if (error?.code === '23514' && error.constraint === 'internal_report_delivery_source_conflict') {
     return {status: 409, body: {error: {code: 'REPORT_DELIVERY_SOURCE_CONFLICT', message: '交付需要当前有效提交的完整外购电力管理稿，并已通过独立复核。'}}};
   }
+  if (error?.code === '23514' && error.constraint === 'report_delivery_factor_disclosure') {
+    return {status: 409, body: {error: {code: 'REPORT_DELIVERY_FACTOR_DISCLOSURE', message: '当前因子版本的披露范围不允许生成或交付此文件。'}}};
+  }
+  if (error?.constraint === 'review_issue_evidence_reference') {
+    return {status: 409, body: {error: {code: 'REVIEW_ISSUE_EVIDENCE_UNAVAILABLE', message: '请引用该提交版本已经固定的材料。'}}};
+  }
+  if (['case_reopen_request_source', 'case_reopen_request_transition', 'case_intake_reopen_source',
+    'case_reopen_request_active_case', 'case_intake_reopen_request_key'].includes(error?.constraint)) {
+    return {status: 409, body: {error: {code: 'CASE_REOPEN_CONFLICT', message: '重开申请或批准版本已变化，请刷新后处理。'}}};
+  }
   if ((error?.code === '23514' && error.constraint === 'case_factor_decision_submission_state')
     || (error?.code === '23505' && error.constraint === 'case_factor_decision_pkey')) {
     return {status: 409, body: {error: {code: 'FACTOR_DECISION_CONFLICT', message: '仅当前待复核提交可记录一次因子选择。'}}};
@@ -264,6 +310,39 @@ function errorResponse(error) {
   }
   if (error?.constraint === 'case_intake_scenario_scope' || error?.constraint === 'scenario_rule_proposal_base_scope') {
     return {status: 404, body: {error: {code: 'SCENARIO_NOT_FOUND', message: '未找到可访问的场景版本。'}}};
+  }
+  if (error?.constraint === 'gas_combustion_input_state' || error?.constraint === 'gas_combustion_input_pkey') {
+    return {status: 409, body: {error: {code: 'GAS_COMBUSTION_CONFLICT', message: '仅当前待复核提交可按月份记录一次燃烧数据。'}}};
+  }
+  if (['product_electricity_profile_pkey', 'product_electricity_profile_state'].includes(error?.constraint)) {
+    return {status: 409, body: {error: {code: 'PRODUCT_PROFILE_CONFLICT', message: '该提交版本已有试算口径。变更口径请使用补正后的提交。'}}};
+  }
+  if (error?.constraint === 'product_electricity_profile_allocation') {
+    return {status: 400, body: {error: {code: 'PRODUCT_ALLOCATION_INVALID', message: '目标产品质量不能大于同期总产出质量。'}}};
+  }
+  if (error?.constraint === 'model_trial_snapshot_submission_state') {
+    return {status: 409, body: {error: {code: 'GAS_COMBUSTION_CONFLICT', message: '请选择当前有效提交冻结结果。'}}};
+  }
+  if (error?.constraint === 'model_trial_snapshot_incomplete') {
+    return {status: 409, body: {error: {code: 'CALCULATION_INCOMPLETE', message: '所选月份仍缺少燃烧输入。'}}};
+  }
+  if (error?.constraint === 'gas_calculation_job_submission_state') {
+    return {status: 409, body: {error: {code: 'GAS_CALCULATION_JOB_STALE', message: '请选择当前有效的提交版本发起计算。'}}};
+  }
+  if (error?.constraint === 'gas_calculation_job_transition') {
+    return {status: 409, body: {error: {code: 'GAS_CALCULATION_JOB_CONFLICT', message: '作业状态已变化，请刷新后重试。'}}};
+  }
+  if (error?.constraint === 'gas_report_restatement_required') {
+    return {status: 409, body: {error: {code: 'GAS_RESTATEMENT_REQUIRED', message: '同范围已有旧版报告。请先提交并完成重述审批，再生成新版。'}}};
+  }
+  if (error?.constraint === 'gas_report_restatement_source') {
+    return {status: 409, body: {error: {code: 'GAS_RESTATEMENT_SOURCE_CONFLICT', message: '请刷新重述清单，重新核对当前快照和上一版报告。'}}};
+  }
+  if (['gas_report_restatement_transition', 'gas_report_restatement_active_target'].includes(error?.constraint)) {
+    return {status: 409, body: {error: {code: 'GAS_RESTATEMENT_CONFLICT', message: '该重述已有有效申请或已处理，请刷新后查看。'}}};
+  }
+  if (['gas_combustion_input_scope', 'gas_combustion_activity_evidence', 'gas_combustion_parameter_evidence'].includes(error?.constraint)) {
+    return {status: 409, body: {error: {code: 'GAS_COMBUSTION_INPUT_UNAVAILABLE', message: '请核对规则判断及该提交版本的凭证。'}}};
   }
   if (error?.code === '23514') {
     const importErrors = {
@@ -304,6 +383,50 @@ export function createCarbonApi(database, {quarantine, renderDeliveryPdf} = {}) 
         const method = request?.method;
 
         if (method === 'POST') {
+          const reopen = routes.reopenRequests.exec(path);
+          if (reopen?.[1] === 'customer') {
+            const input = commandBody(request.body, ['orgId', 'approvedRevision', 'reason']);
+            return {status: 201, body: await intake.requestCaseReopen(scope, uuid(input.orgId, '组织'),
+              uuid(reopen[2], '任务'), revision(input.approvedRevision), requiredText(input.reason, '重开原因'))};
+          }
+          const reopenReview = routes.reviewReopenRequest.exec(path);
+          if (reopenReview) {
+            const input = commandBody(request.body, ['orgId', 'decision'], ['reason']);
+            if (!['approved', 'returned'].includes(input.decision)) badRequest('请选择批准或退回重开。');
+            const reason = input.decision === 'returned' || Object.hasOwn(input, 'reason')
+              ? requiredText(input.reason, '审批说明') : null;
+            return {status: 200, body: await intake.reviewCaseReopen(scope, uuid(input.orgId, '组织'),
+              uuid(reopenReview[1], '任务'), uuid(reopenReview[2], '重开申请'), input.decision, reason)};
+          }
+          const reopenDraft = routes.createReopenedDraft.exec(path);
+          if (reopenDraft) {
+            const input = commandBody(request.body, ['orgId']);
+            return await intake.createReopenedDraft(scope, uuid(input.orgId, '组织'),
+              uuid(reopenDraft[1], '任务'), uuid(reopenDraft[2], '重开申请'));
+          }
+          const issues = routes.reviewIssues.exec(path);
+          if (issues?.[1] === 'professional') {
+            const input = commandBody(request.body,
+              ['orgId', 'submissionRevision', 'title', 'description', 'severity', 'dueDate'], ['evidenceId']);
+            if (!['low', 'normal', 'critical'].includes(input.severity)) badRequest('请选择问题的严重性。');
+            const due = typeof input.dueDate === 'string' && /^(?!0000)\d{4}-\d{2}-\d{2}$/.test(input.dueDate)
+              ? new Date(`${input.dueDate}T00:00:00Z`) : null;
+            if (!due || !Number.isFinite(due.getTime()) || due.toISOString().slice(0, 10) !== input.dueDate) {
+              badRequest('请填写有效的到期日。');
+            }
+            return {status: 201, body: await intake.openReviewIssue(scope, uuid(input.orgId, '组织'),
+              uuid(issues[2], '任务'), {submissionRevision: revision(input.submissionRevision),
+                title: requiredText(input.title, '标题', 200), description: requiredText(input.description, '问题说明', 1000),
+                severity: input.severity, dueDate: input.dueDate,
+                evidenceId: Object.hasOwn(input, 'evidenceId') ? uuid(input.evidenceId, '材料') : null})};
+          }
+          const issueAction = routes.reviewIssueAction.exec(path);
+          if (issueAction && (issueAction[1] === 'customer') === (issueAction[4] === 'reply')) {
+            const input = commandBody(request.body, ['orgId', 'expectedVersion', 'note']);
+            return {status: 200, body: await intake.changeReviewIssue(scope, uuid(input.orgId, '组织'),
+              uuid(issueAction[2], '任务'), uuid(issueAction[3], '问题'), issueAction[4],
+              revision(input.expectedVersion), requiredText(input.note, '处理说明', 1000))};
+          }
           const evidenceFile = routes.evidenceFile.exec(path);
           if (evidenceFile) {
             queryFields(query, ['orgId']);
@@ -339,6 +462,97 @@ export function createCarbonApi(database, {quarantine, renderDeliveryPdf} = {}) 
             const input = commandBody(request.body, ['orgId', 'scenarioReleaseId']);
             return await intake.createRuleRecalculation(scope, uuid(input.orgId, '组织'),
               uuid(ruleRecalculation[1], '原任务'), uuid(input.scenarioReleaseId, '新版场景'));
+          }
+          const productElectricity = routes.productElectricity.exec(path);
+          if (productElectricity?.[1] === 'professional') {
+            const input = commandBody(request.body, ['orgId', 'from', 'to', 'boundaryNote', 'functionalUnit',
+              'outputQuantity', 'allocationMethod', 'allocationBasis'], ['productMassKg', 'batchMassKg']);
+            const [from, to] = calculationMonths(input.from, input.to);
+            if (!['exclusive', 'mass'].includes(input.allocationMethod)) badRequest('请选择电力归属方式。');
+            const byMass = input.allocationMethod === 'mass';
+            if (!byMass && (Object.hasOwn(input, 'productMassKg') || Object.hasOwn(input, 'batchMassKg'))) {
+              badRequest('独占用电无需填报分配质量。');
+            }
+            const productMassKg = byMass ? combustionDecimal(input.productMassKg, '目标产品质量', 12, 6, true) : null;
+            const batchMassKg = byMass ? combustionDecimal(input.batchMassKg, '同期总产出质量', 12, 6, true) : null;
+            return {status: 201, body: await intake.recordProductElectricity(scope, uuid(input.orgId, '组织'),
+              uuid(productElectricity[2], '任务'), revisionParam(productElectricity[3]), {
+                from, to, boundaryNote: requiredText(input.boundaryNote, '电力边界'),
+                functionalUnit: requiredText(input.functionalUnit, '功能单位', 160),
+                outputQuantity: combustionDecimal(input.outputQuantity, '功能单位产出数', 12, 6, true),
+                allocationMethod: input.allocationMethod, productMassKg, batchMassKg,
+                allocationBasis: requiredText(input.allocationBasis, '归属或分配依据')
+              })};
+          }
+          const gasCombustion = routes.gasCombustion.exec(path);
+          if (gasCombustion?.[1] === 'professional') {
+            const input = commandBody(request.body, ['orgId', 'period', 'standardVolumeNm3',
+              'oxidationFraction', 'activityEvidenceId', 'parameterEvidenceId', 'parameterBasis'],
+              ['methodBranch', 'ncvGjPer10kNm3', 'carbonTcPerGj', 'elementalCarbonTcPer10kNm3']);
+            const methodBranch = Object.hasOwn(input, 'methodBranch') ? input.methodBranch : 'ncv_carbon';
+            if (!['ncv_carbon', 'measured_carbon'].includes(methodBranch)) badRequest('请选择支持的元素碳计算分支。');
+            const measured = methodBranch === 'measured_carbon';
+            if (measured ? Object.hasOwn(input, 'ncvGjPer10kNm3') || Object.hasOwn(input, 'carbonTcPerGj')
+              : Object.hasOwn(input, 'elementalCarbonTcPer10kNm3')) {
+              badRequest('两种元素碳计算分支的参数须分别录入。');
+            }
+            const oxidationFraction = combustionDecimal(input.oxidationFraction, '碳氧化率', 2, 10, true);
+            if (Number(oxidationFraction) > 1) badRequest('碳氧化率以大于 0 且不超过 1 的比例录入。');
+            return {status: 201, body: await intake.recordGasCombustion(scope, uuid(input.orgId, '组织'),
+              uuid(gasCombustion[2], '任务'), revisionParam(gasCombustion[3]), {
+                period: combustionMonth(input.period),
+                standardVolumeNm3: combustionDecimal(input.standardVolumeNm3, '标准体积', 14, 8),
+                methodBranch, ncvGjPer10kNm3: measured ? null : combustionDecimal(input.ncvGjPer10kNm3, '低位发热量', 14, 8, true),
+                carbonTcPerGj: measured ? null : combustionDecimal(input.carbonTcPerGj, '单位热值含碳量', 10, 12, true),
+                elementalCarbonTcPer10kNm3: measured
+                  ? combustionDecimal(input.elementalCarbonTcPer10kNm3, '实测元素碳含量', 10, 12, true) : null,
+                oxidationFraction, activityEvidenceId: uuid(input.activityEvidenceId, '活动凭证'),
+                parameterEvidenceId: uuid(input.parameterEvidenceId, '参数凭证'),
+                parameterBasis: requiredText(input.parameterBasis, '参数与体积参比依据')
+              })};
+          }
+          const gasCombustionSnapshots = routes.gasCombustionSnapshots.exec(path);
+          if (gasCombustionSnapshots?.[1] === 'customer') {
+            const input = commandBody(request.body, ['orgId', 'from', 'to']);
+            const [from, to] = calculationMonths(combustionMonth(input.from), combustionMonth(input.to));
+            return await intake.saveGasCombustionSnapshot(scope, uuid(input.orgId, '组织'),
+              uuid(gasCombustionSnapshots[2], '任务'), revisionParam(gasCombustionSnapshots[3]), from, to);
+          }
+          const gasRestatements = routes.gasRestatements.exec(path);
+          if (gasRestatements?.[1] === 'customer') {
+            const input = commandBody(request.body, ['orgId', 'baselineSnapshotId', 'targetSnapshotId', 'reason']);
+            return {status: 201, body: await intake.requestGasRestatement(scope, uuid(input.orgId, '组织'),
+              uuid(gasRestatements[2], '任务'), uuid(input.baselineSnapshotId, '旧版快照'),
+              uuid(input.targetSnapshotId, '新版快照'), requiredText(input.reason, '重述原因'))};
+          }
+          const gasRestatementReview = routes.gasRestatementReview.exec(path);
+          if (gasRestatementReview) {
+            const input = commandBody(request.body, ['orgId', 'decision'], ['reason']);
+            if (!['approved', 'returned'].includes(input.decision)) badRequest('请选择批准或退回重述。');
+            const reason = input.decision === 'returned' || Object.hasOwn(input, 'reason')
+              ? requiredText(input.reason, '审批意见') : null;
+            return {status: 200, body: await intake.reviewGasRestatement(scope, uuid(input.orgId, '组织'),
+              uuid(gasRestatementReview[1], '任务'), uuid(gasRestatementReview[2], '重述申请'), input.decision, reason)};
+          }
+          const gasCombustionReportDraft = routes.gasCombustionReportDraft.exec(path);
+          if (gasCombustionReportDraft) {
+            const input = commandBody(request.body, ['orgId']);
+            return await intake.createGasCombustionReportDraft(scope, uuid(input.orgId, '组织'),
+              uuid(gasCombustionReportDraft[1], '任务'), revisionParam(gasCombustionReportDraft[2]),
+              uuid(gasCombustionReportDraft[3], '试算快照'));
+          }
+          const enqueueGasCalculationJob = routes.enqueueGasCalculationJob.exec(path);
+          if (enqueueGasCalculationJob) {
+            const input = commandBody(request.body, ['orgId', 'from', 'to']);
+            const [from, to] = calculationMonths(combustionMonth(input.from), combustionMonth(input.to));
+            return await intake.enqueueGasCalculationJob(scope, uuid(input.orgId, '组织'),
+              uuid(enqueueGasCalculationJob[1], '任务'), revisionParam(enqueueGasCalculationJob[2]), from, to);
+          }
+          const gasCalculationJobAction = routes.gasCalculationJobAction.exec(path);
+          if (gasCalculationJobAction) {
+            const input = commandBody(request.body, ['orgId']);
+            return {status: 200, body: await intake.changeGasCalculationJob(scope, uuid(input.orgId, '组织'),
+              uuid(gasCalculationJobAction[1], '任务'), uuid(gasCalculationJobAction[2], '计算作业'), gasCalculationJobAction[3])};
           }
           const recordRuleAssessment = routes.recordRuleAssessment.exec(path);
           if (recordRuleAssessment) {
@@ -485,6 +699,46 @@ export function createCarbonApi(database, {quarantine, renderDeliveryPdf} = {}) 
         }
 
         if (method === 'GET') {
+          const readiness = routes.reportReleaseReadiness.exec(path);
+          if (readiness) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.readReportReleaseReadiness(scope, uuid(query.get('orgId'), '组织'),
+              uuid(readiness[1], '任务'), uuid(readiness[2], '报告'))};
+          }
+          const reopen = routes.reopenRequests.exec(path);
+          if (reopen) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.listCaseReopenRequests(scope, uuid(query.get('orgId'), '组织'),
+              uuid(reopen[2], '任务'), reopen[1] === 'customer')};
+          }
+          const reopenImpact = routes.reopenImpact.exec(path);
+          if (reopenImpact) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.previewCaseReopen(scope, uuid(query.get('orgId'), '组织'),
+              uuid(reopenImpact[2], '任务'), reopenImpact[1] === 'customer')};
+          }
+          const reviewSummary = routes.reviewSummary.exec(path);
+          if (reviewSummary) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.readSubmissionReviewSummary(scope, uuid(query.get('orgId'), '组织'),
+              uuid(reviewSummary[1], '任务'), revisionParam(reviewSummary[2]))};
+          }
+          const issues = routes.reviewIssues.exec(path);
+          if (issues) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.listReviewIssues(scope, uuid(query.get('orgId'), '组织'),
+              uuid(issues[2], '任务'), issues[1] === 'customer')};
+          }
+          if (path === '/v1/professional/model-templates') {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.listModelTemplates(scope, uuid(query.get('orgId'), '组织'))};
+          }
+          const templateImpact = routes.modelTemplateImpact.exec(path);
+          if (templateImpact) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.previewModelTemplateImpact(scope, uuid(query.get('orgId'), '组织'),
+              templateImpact[1], revisionParam(templateImpact[2]))};
+          }
           if (path === '/v1/session/workspace') {
             queryFields(query, ['view']);
             const view = query.get('view');
@@ -627,6 +881,59 @@ export function createCarbonApi(database, {quarantine, renderDeliveryPdf} = {}) 
             const version = query.get('revision');
             return {status: 200, body: await intake.readRuleAssessment(scope, uuid(query.get('orgId'), '组织'),
               uuid(ruleAssessment[2], '任务'), version === null ? null : revisionParam(version), ruleAssessment[1] === 'customer')};
+          }
+          const productComparison = routes.productElectricityComparison.exec(path);
+          if (productComparison) {
+            queryFields(query, ['orgId', 'baseline', 'target']);
+            const baseline = revisionParam(query.get('baseline'));
+            const target = revisionParam(query.get('target'));
+            if (baseline === target) badRequest('请选择两个不同的提交版本。');
+            return {status: 200, body: await intake.compareProductElectricity(scope, uuid(query.get('orgId'), '组织'),
+              uuid(productComparison[2], '任务'), baseline, target, productComparison[1] === 'customer')};
+          }
+          const productElectricity = routes.productElectricity.exec(path);
+          if (productElectricity) {
+            return {status: 200, body: await intake.readProductElectricity(scope, uuid(query.get('orgId'), '组织'),
+              uuid(productElectricity[2], '任务'), revisionParam(productElectricity[3]), productElectricity[1] === 'customer')};
+          }
+          const gasCombustion = routes.gasCombustion.exec(path);
+          if (gasCombustion) {
+            queryFields(query, ['orgId', 'from', 'to']);
+            const [from, to] = calculationMonths(combustionMonth(query.get('from')), combustionMonth(query.get('to')));
+            return {status: 200, body: await intake.previewGasCombustion(scope, uuid(query.get('orgId'), '组织'),
+              uuid(gasCombustion[2], '任务'), revisionParam(gasCombustion[3]), from, to, gasCombustion[1] === 'customer')};
+          }
+          const gasCombustionSnapshots = routes.gasCombustionSnapshots.exec(path);
+          if (gasCombustionSnapshots) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.listGasCombustionSnapshots(scope, uuid(query.get('orgId'), '组织'),
+              uuid(gasCombustionSnapshots[2], '任务'), revisionParam(gasCombustionSnapshots[3]), gasCombustionSnapshots[1] === 'customer')};
+          }
+          const gasCombustionSnapshot = routes.gasCombustionSnapshot.exec(path);
+          if (gasCombustionSnapshot) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.readGasCombustionSnapshot(scope, uuid(query.get('orgId'), '组织'),
+              uuid(gasCombustionSnapshot[2], '任务'), revisionParam(gasCombustionSnapshot[3]),
+              uuid(gasCombustionSnapshot[4], '试算快照'), gasCombustionSnapshot[1] === 'customer')};
+          }
+          const gasRestatements = routes.gasRestatements.exec(path);
+          if (gasRestatements) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.listGasRestatements(scope, uuid(query.get('orgId'), '组织'),
+              uuid(gasRestatements[2], '任务'), gasRestatements[1] === 'customer')};
+          }
+          const gasCombustionComparison = routes.gasCombustionComparison.exec(path);
+          if (gasCombustionComparison) {
+            queryFields(query, ['orgId', 'baseline', 'target']);
+            return {status: 200, body: await intake.compareGasCombustionSnapshots(scope, uuid(query.get('orgId'), '组织'),
+              uuid(gasCombustionComparison[2], '任务'), uuid(query.get('baseline'), '基准快照'),
+              uuid(query.get('target'), '对比快照'), gasCombustionComparison[1] === 'customer')};
+          }
+          const gasCalculationJobs = routes.gasCalculationJobs.exec(path);
+          if (gasCalculationJobs) {
+            queryFields(query, ['orgId']);
+            return {status: 200, body: await intake.readGasCalculationJobs(scope, uuid(query.get('orgId'), '组织'),
+              uuid(gasCalculationJobs[1], '任务'), gasCalculationJobs[2] ? uuid(gasCalculationJobs[2], '计算作业') : null)};
           }
           const list = routes.cases.exec(path);
           if (list) {

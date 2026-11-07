@@ -21,9 +21,12 @@ export const internalReportHref = ({orgId, caseId, draftId, view}) =>
   `/reports/internal-draft?${new URLSearchParams({orgId, case: caseId, draft: draftId, view})}`;
 const reportSourceNames = {electricity: '购入电力', natural_gas: '天然气'};
 const reportUnits = {kgCO2: 'CO₂', kgCO2e: 'CO₂e'};
+export const reportKind = mode => ({controlled: '内部管理稿', internal_trial: '内部试算报告'})[mode] ?? '演示稿';
 
 export function reportTotals({summary}, mode) {
-  if (mode !== 'controlled') return {main: `${summary.totalTCO2e} tCO₂e`, note: `合计 ${summary.totalKgCO2e} kgCO₂e`};
+  if (mode !== 'controlled' && mode !== 'internal_trial') {
+    return {main: `${summary.totalTCO2e} tCO₂e`, note: `合计 ${summary.totalKgCO2e} kgCO₂e`};
+  }
   const unit = reportUnits[summary.outputUnit];
   const coverage = `已计算 ${summary.coverage.availableSlots}/${summary.coverage.expectedSlots} 项`;
   if (summary.totalKg === null) return {
@@ -34,14 +37,16 @@ export function reportTotals({summary}, mode) {
 
 export function reportItemDisplay(item, mode, outputUnit) {
   const {lineage, factor} = item;
-  const emissions = mode !== 'controlled' ? `${item.emissionsKgCO2e} kgCO₂e`
-    : {calculated: `${item.emissionsKg} kg ${reportUnits[outputUnit]}`, missing_activity: '缺已提交活动数据',
-      missing_factor: '缺适用因子'}[item.status];
+  const emissions = mode === 'controlled' || mode === 'internal_trial'
+    ? {calculated: `${item.emissionsKg} kg ${reportUnits[outputUnit]}`, missing_activity: '缺已提交活动数据',
+      missing_factor: '缺适用因子', missing_input: '缺活动量或参数'}[item.status] : `${item.emissionsKgCO2e} kgCO₂e`;
   const activitySource = lineage && `源文件第 ${lineage.sourceRow} 行 · 活动第 ${lineage.activityRevision} 版`;
   const factorSource = factor && item.status !== 'missing_factor' && `因子第 ${factor.version} 版`;
+  const trialSource = mode === 'internal_trial' && item.status === 'calculated'
+    && [item.methodBranch === 'measured_carbon' ? '实测元素碳含量' : '低位发热量法', item.parameterBasis].filter(Boolean).join(' · ');
   return {activity: `${item.period} · ${reportSourceNames[item.source] ?? item.source}`,
     quantity: item.quantity === null ? '—' : `${item.quantity} ${item.unit}`,
-    emissions, provenance: [activitySource, factorSource].filter(Boolean).join(' · ') || '—'};
+    emissions, provenance: [activitySource, factorSource, trialSource].filter(Boolean).join(' · ') || '—'};
 }
 const evidenceStatuses = { pending_file: '待补文件', pending_scan: '待检查', passed: '检查通过', rejected: '检查未通过' };
 export const evidenceStatusLabel = status => evidenceStatuses[status] ?? status;

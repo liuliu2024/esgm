@@ -6,7 +6,60 @@
   <title>专业作业台 · 碳有据</title>
   <link rel="stylesheet" href="/shared.css">
   <style>
-    body { --paper: #f4f8f9; --surface: #fff; --ink: #142b40; --muted: #496171; --line: #dce7e9; --accent: #076d66; --accent-soft: #e5f4f0; }
+    body { --paper: #edf2f8; --surface: #fff; --ink: #152941; --muted: #4d6077; --line: #d9e3ed; --accent: #17528b; --accent-soft: #e7f0fa; }
+    .review-header { width: 100%; padding: 18px 0; color: #fff; background: #122e4a; }
+    .review-header-inner { width: min(100% - 32px, 1120px); margin-inline: auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .review-brand, .review-header nav { display: flex; align-items: center; gap: 12px; }
+    .review-brand a { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; font-weight: 700; }
+    .review-header a { color: #fff; text-decoration: none; }
+    .review-header a:hover { text-decoration: underline; }
+    .review-header a:focus-visible { outline-color: #d3f9b6; }
+    .review-header h1 { font-size: clamp(20px, 3vw, 28px); }
+    .review-workspace { margin-top: 22px; }
+    .review-queue { padding: 20px; }
+    .review-queue-head, #queue > li { display: grid; grid-template-columns: minmax(0, 1fr) 110px 90px 118px; align-items: center; gap: 12px; }
+    .review-queue-head { margin-top: 12px; padding: 9px 12px; background: var(--paper); color: var(--muted); font-weight: 650; font-size: 13px; }
+    #queue { list-style: none; padding: 0; margin: 0 0 12px; }
+    #queue > li { border-bottom: 1px solid var(--line); padding: 10px 12px; }
+    #queue > li:has([aria-current="true"]) { background: var(--accent-soft); }
+    #queue .queue-purpose { overflow-wrap: anywhere; }
+    #queue .status { justify-self: start; white-space: nowrap; }
+    #queue [data-status="submitted"] { color: #174c7c; background: var(--accent-soft); }
+    #queue .queue-action { justify-self: start; min-height: 38px; white-space: nowrap; }
+    #case-review-workspace { padding: clamp(14px, 3vw, 30px); }
+    .dossier-mast { border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 14px; }
+    .dossier-mast a { display: inline-flex; align-items: center; min-height: 44px; }
+    .dossier-title { font-size: clamp(22px, 3vw, 30px); line-height: 1.3; overflow-wrap: anywhere; }
+    .dossier-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .dossier-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+    .dossier-nav button { min-height: 44px; font-weight: 650; padding-inline: 6px; }
+    .dossier-nav [aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+    .dossier-section { display: grid; gap: 16px; }
+    .dossier-section > :is(section, details) { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; overflow-wrap: anywhere; }
+    .dossier-section > details > summary { cursor: pointer; min-height: 32px; padding-block: 3px; font-weight: 650; }
+    .dossier-section > details[open] > summary { margin-bottom: 10px; }
+    .dossier-section p[role="status"]:empty { display: none; }
+    .case-scope-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 10px 0 0; }
+    .case-scope-grid dt { font-size: 14px; color: var(--muted); }
+    .case-scope-grid dd { margin: 2px 0 0; font-weight: 650; overflow-wrap: anywhere; }
+    .case-version { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    #case-detail:has([aria-controls="dossier-reports"][aria-pressed="true"], [aria-controls="dossier-decision"][aria-pressed="true"]) .case-version,
+    #case-detail:has(.case-version[hidden]) #version-evidence-card { display: none; }
+    #detail-status:empty { display: none; }
+    #review-form { max-width: 48rem; }
+    #review-form .actions { margin-top: 0; }
+    #review-tools { margin-top: 24px; }
+    #review-tools > .panel { margin: 0; }
+    #review-tools summary { font-weight: 650; cursor: pointer; }
+    @media (max-width: 600px) {
+      .review-queue-head { display: none; }
+      #queue > li { grid-template-columns: minmax(0, 1fr) auto auto; gap: 7px; padding-inline: 0; }
+      #queue .queue-purpose { grid-column: 1 / -1; }
+      #queue .queue-action { min-height: 44px; }
+      .review-queue { padding: 14px; }
+      .dossier-nav, .case-scope-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .calculation-months :is(label, input, select) { min-width: 0; max-width: 100%; }
+    }
     #factor-references > summary { color: var(--accent); font-weight: 650; cursor: pointer; }
     #revision-calculation > summary { cursor: pointer; font-weight: 650; }
     .calculation-months { display: flex; flex-wrap: wrap; align-items: end; gap: 8px 12px; }
@@ -15,82 +68,66 @@
   <script type="module" src="/professional.mjs"></script>
 </head>
 <body>
-  <header>
-    <h1>专业作业台</h1>
+  <header class="review-header">
+    <div class="review-header-inner">
+      <div class="review-brand">
+        <a href="/" aria-label="碳有据首页">
+          <svg aria-hidden="true" viewBox="0 0 40 40" width="36" height="36"><rect width="40" height="40" rx="12" fill="#0b8b68"/><path d="M28 12a12 12 0 1 0 0 16M15 21l4 4 8-9" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="31" cy="12" r="2" fill="#d3f9b6"/></svg>
+          <span>碳有据</span>
+        </a>
+        <h1>专业复核工作台</h1>
+      </div>
+      <nav aria-label="专业工作台导航"><a href="#queue-heading" data-review-home>复核队列</a><a href="#review-tools-title" data-review-home>专业工具</a></nav>
+    </div>
   </header>
   <main>
     <p id="workspace-error" role="alert"></p>
-    <details id="factor-references" class="panel">
-      <summary>官方因子查询</summary>
-      <form id="factor-reference-form" class="actions">
-        <label for="factor-accounting-basis">核算口径</label>
-        <select id="factor-accounting-basis">
-          <option value="product_footprint">产品电力碳足迹</option>
-          <option value="organization_electricity_co2">电力消费二氧化碳排放</option>
-        </select>
-        <label for="factor-data-year">数据年份</label>
-        <select id="factor-data-year">
-          <option value="2024">2024 年</option>
-          <option value="2023">2023 年</option>
-        </select>
-        <label for="factor-region">适用地域</label>
-        <select id="factor-region" required disabled><option value="">请选择地域</option></select>
-        <button id="factor-reference-search" type="submit" disabled>查询因子</button>
-      </form>
-      <p id="factor-region-status" role="status"></p>
-      <p id="factor-region-error" role="alert"></p>
-      <button id="factor-region-retry" type="button" hidden>重新读取地域</button>
-      <p id="factor-reference-status" role="status"></p>
-      <p id="factor-reference-error" role="alert"></p>
-      <ul id="factor-reference-results" class="history-list" hidden></ul>
-    </details>
-    <details id="rule-proposal-review" class="panel">
-      <summary>规则草案审批</summary>
-      <div class="stack">
-        <p class="muted">审批限本组织的独立专业人员。发布由发布岗执行。</p>
-        <p id="rule-proposal-review-status" role="status"></p>
-        <p id="rule-proposal-review-error" role="alert"></p>
-        <ul id="rule-proposal-review-list" class="history-list" hidden></ul>
-        <button type="button" id="rule-proposal-review-refresh">刷新草案</button>
-      </div>
-    </details>
-    <div class="layout">
-      <section class="panel" aria-labelledby="queue-heading">
+    <div class="review-workspace stack">
+      <section id="review-queue-workspace" class="panel review-queue" aria-labelledby="queue-heading">
         <div class="heading">
-          <h2 id="queue-heading">复核队列</h2>
+          <h2 id="queue-heading" tabindex="-1">复核队列</h2>
           <button type="button" id="refresh-queue">刷新</button>
         </div>
         <p id="queue-status" role="status">正在加载任务</p>
-        <ul id="queue" class="task-list" hidden></ul>
+        <div id="queue-columns" class="review-queue-head" aria-hidden="true" hidden>
+          <span>办理事项</span><span>任务状态</span><span>任务版本</span><span>操作</span>
+        </div>
+        <ul id="queue" hidden></ul>
         <button type="button" id="next-page" hidden>加载更多</button>
       </section>
-      <section class="panel" aria-labelledby="detail-heading">
-        <h2 id="detail-heading" tabindex="-1">受理详情</h2>
+      <section id="case-review-workspace" class="panel" aria-labelledby="detail-heading" hidden>
+        <div class="dossier-mast">
+          <a href="#queue-heading" data-review-home data-return-to-task>← 返回复核队列</a>
+          <h2 id="detail-heading" class="dossier-title" tabindex="-1">复核案卷</h2>
+        </div>
         <p id="detail-status" role="status">请选择一项任务</p>
         <div id="case-detail" class="stack" hidden>
-          <div class="heading">
+          <div class="dossier-meta">
             <span id="case-status" class="status"></span>
             <small id="case-revision"></small>
           </div>
-          <section>
-            <h3>办理用途</h3>
-            <p id="purpose"></p>
-          </section>
+          <nav class="dossier-nav" aria-label="案卷分区">
+            <button type="button" aria-controls="dossier-evidence" aria-pressed="true">材料与范围</button>
+            <button type="button" aria-controls="dossier-calculation" aria-pressed="false">规则与核算</button>
+            <button type="button" aria-controls="dossier-reports" aria-pressed="false">报告复核</button>
+            <button type="button" aria-controls="dossier-decision" aria-pressed="false">受理决定</button>
+          </nav>
+          <div id="revision-evidence-section" class="case-version" hidden>
+            <label for="evidence-revision">提交版本</label>
+            <select id="evidence-revision"></select>
+          </div>
+          <section id="dossier-evidence" class="dossier-section" aria-label="材料与范围">
           <details id="case-scenario-preparation" hidden>
             <summary>受理时的准备材料与报告要求</summary>
             <div></div>
           </details>
           <section id="scope-section" aria-labelledby="scope-heading" hidden>
             <h3 id="scope-heading">申报范围</h3>
-            <dl>
-              <dt>报告对象</dt>
-              <dd id="scope-subject"></dd>
-              <dt>地区</dt>
-              <dd id="scope-jurisdiction"></dd>
-              <dt>报告年度</dt>
-              <dd id="scope-year"></dd>
-              <dt>交付对象</dt>
-              <dd id="scope-recipient"></dd>
+            <dl class="case-scope-grid">
+              <div><dt>报告对象</dt><dd id="scope-subject"></dd></div>
+              <div><dt>地区</dt><dd id="scope-jurisdiction"></dd></div>
+              <div><dt>报告年度</dt><dd id="scope-year"></dd></div>
+              <div><dt>交付对象</dt><dd id="scope-recipient"></dd></div>
             </dl>
           </section>
           <section id="correction-section" hidden>
@@ -106,15 +143,41 @@
             <p id="evidence-status" role="status"></p>
             <ul id="evidence-list" class="task-list" hidden></ul>
           </section>
-          <section id="revision-evidence-section" class="stack" hidden>
-            <h3>提交版本证据</h3>
-            <div>
-              <label for="evidence-revision">提交版本</label>
-              <select id="evidence-revision"></select>
-            </div>
+          <section id="version-evidence-card" class="stack">
+            <section id="submission-review-summary" class="stack" aria-labelledby="submission-review-heading" hidden>
+              <h3 id="submission-review-heading">提交版本复核摘要</h3>
+              <p id="submission-review-state" role="status"></p>
+              <p id="submission-review-error" role="alert"></p>
+              <dl id="submission-review-fields" class="case-scope-grid" hidden></dl>
+              <div id="submission-review-changes" hidden></div>
+            </section>
+            <h3>随该版本提交的证据</h3>
             <p id="revision-evidence-status" role="status"></p>
             <p id="revision-evidence-error" role="alert"></p>
             <ul id="revision-evidence-list" class="history-list" hidden></ul>
+          </section>
+          <details id="review-issues" hidden>
+            <summary>复核问题与整改</summary>
+            <div class="stack">
+              <p data-issue-state role="status"></p>
+              <p data-issue-error role="alert"></p>
+              <button data-issue-refresh type="button">刷新问题</button>
+              <ul data-issue-items class="history-list" hidden></ul>
+              <form data-issue-open class="stack" hidden>
+                <h3 data-issue-revision></h3>
+                <label>问题标题 <input name="title" maxlength="200" required></label>
+                <label>问题说明 <textarea name="description" maxlength="1000" required></textarea></label>
+                <label>严重程度
+                  <select name="severity" required><option value="normal">一般</option><option value="low">较低</option><option value="critical">关键</option></select>
+                </label>
+                <label>到期日（北京时间） <input name="dueDate" type="date" required></label>
+                <label>固定证据（可选） <select name="evidenceId" disabled></select></label>
+                <button type="submit">发起复核问题</button>
+              </form>
+            </div>
+          </details>
+          </section>
+          <section id="dossier-calculation" class="dossier-section" aria-label="规则与核算" hidden>
             <details id="case-rule-assessment" hidden>
               <summary>适用规则</summary>
               <p data-rule-state class="muted" role="status"></p>
@@ -157,7 +220,102 @@
               <p id="revision-calculation-excluded" class="muted"></p>
               <ul id="revision-calculation-list" class="history-list" hidden></ul>
             </details>
-          </section>
+            <details id="product-electricity" hidden>
+              <summary>生产用电贡献</summary>
+              <div class="stack">
+                <p data-product-state role="status"></p>
+                <p data-product-error role="alert"></p>
+                <div data-product-result class="stack" hidden></div>
+                <form data-product-form class="stack" hidden>
+                  <div class="calculation-months">
+                    <label>起始月 <input name="from" type="month" required></label>
+                    <label>结束月 <input name="to" type="month" required></label>
+                  </div>
+                  <label>生产用电边界 <textarea name="boundaryNote" maxlength="500" required></textarea></label>
+                  <label>功能单位 <input name="functionalUnit" maxlength="160" placeholder="例如 1 台电机" required></label>
+                  <label>同期功能单位产出数 <input name="outputQuantity" inputmode="decimal" maxlength="19" required></label>
+                  <label>用电归属
+                    <select name="allocationMethod" required>
+                      <option value="exclusive">目标产品独占</option>
+                      <option value="mass">按同期产出质量分配</option>
+                    </select>
+                  </label>
+                  <div class="calculation-months" data-product-mass hidden>
+                    <label>目标产品质量（kg） <input name="productMassKg" inputmode="decimal" maxlength="19" required disabled></label>
+                    <label>同期总产出质量（kg） <input name="batchMassKg" inputmode="decimal" maxlength="19" required disabled></label>
+                  </div>
+                  <label>归属或分配依据 <textarea name="allocationBasis" maxlength="500" required></textarea></label>
+                  <button type="submit">记录本提交用电口径</button>
+                </form>
+                <details data-product-comparison>
+                  <summary>提交版本对比</summary>
+                  <form class="actions" hidden>
+                    <label>基准提交 <select name="baseline" required></select></label>
+                    <label>对比提交 <select name="target" required></select></label>
+                    <button type="submit">查看用电排放差额</button>
+                  </form>
+                  <p data-comparison-state role="status"></p>
+                  <p data-comparison-error role="alert"></p>
+                  <div data-comparison-result class="stack" hidden></div>
+                </details>
+              </div>
+            </details>
+            <details id="gas-combustion" hidden>
+              <summary>天然气固定燃烧试算</summary>
+              <div class="stack">
+                <p class="muted">仅供 2026 年发电设施内部核对。标准体积参比条件为 20℃、101.325 kPa。</p>
+                <form data-combustion-range class="calculation-months">
+                  <label>起始月 <input name="from" type="month" min="2026-01" max="2026-12" value="2026-01" required></label>
+                  <label>结束月 <input name="to" type="month" min="2026-01" max="2026-12" value="2026-12" required></label>
+                  <button type="submit">查询试算</button>
+                </form>
+                <p data-combustion-status role="status"></p>
+                <p data-combustion-error role="alert"></p>
+                <div data-combustion-result class="stack" hidden>
+                  <a data-combustion-source target="_blank" rel="noopener noreferrer"></a>
+                  <ul data-combustion-months class="history-list"></ul>
+                </div>
+                <form data-combustion-entry class="stack" hidden>
+                  <h3>记录月度活动和参数</h3>
+                  <p data-combustion-evidence role="status"></p>
+                  <label>月份 <input name="period" type="month" min="2026-01" max="2026-12" required></label>
+                  <label>含碳量计算方法
+                    <select name="methodBranch" required>
+                      <option value="ncv_carbon">低位发热量与单位热值含碳量</option>
+                      <option value="measured_carbon">实测元素碳含量</option>
+                    </select>
+                  </label>
+                  <label>天然气标准体积（Nm³） <input name="standardVolumeNm3" inputmode="decimal" maxlength="23" required></label>
+                  <label data-combustion-method="ncv_carbon">低位发热量（GJ/万 Nm³） <input name="ncvGjPer10kNm3" inputmode="decimal" maxlength="23" required></label>
+                  <label data-combustion-method="ncv_carbon">单位热值含碳量（tC/GJ） <input name="carbonTcPerGj" inputmode="decimal" maxlength="23" required></label>
+                  <label data-combustion-method="measured_carbon" hidden>实测元素碳含量（tC/万 Nm³） <input name="elementalCarbonTcPer10kNm3" inputmode="decimal" maxlength="23" required disabled></label>
+                  <label>碳氧化率（比例，0 至 1） <input name="oxidationFraction" inputmode="decimal" maxlength="13" required></label>
+                  <label>活动量凭证 <select name="activityEvidenceId" required disabled></select></label>
+                  <label>参数凭证 <select name="parameterEvidenceId" required disabled></select></label>
+                  <label>参数和体积参比依据 <textarea name="parameterBasis" maxlength="500" required></textarea></label>
+                  <p class="muted">记录前请确认适用规则。每个提交版本同月只可记录一次。</p>
+                  <p data-combustion-entry-error role="alert"></p>
+                  <button type="submit" disabled>记录并试算</button>
+                </form>
+                <details data-combustion-comparison>
+                  <summary>冻结快照对比</summary>
+                  <form class="stack">
+                    <div class="calculation-months">
+                      <label>基准提交版本 <select name="baselineRevision" required></select></label>
+                      <label>基准快照 <select name="baseline" required disabled></select></label>
+                    </div>
+                    <div class="calculation-months">
+                      <label>对比提交版本 <select name="targetRevision" required></select></label>
+                      <label>对比快照 <select name="target" required disabled></select></label>
+                    </div>
+                    <button type="submit" disabled>对比排放差额</button>
+                  </form>
+                  <p data-comparison-status role="status"></p>
+                  <p data-comparison-error role="alert"></p>
+                  <ul data-comparison-months class="history-list" hidden></ul>
+                </details>
+              </div>
+            </details>
           <details id="case-factor-decision" hidden>
             <summary>因子适用决定</summary>
             <div class="stack">
@@ -191,12 +349,24 @@
               </form>
             </div>
           </details>
+          </section>
+          <section id="dossier-decision" class="dossier-section" aria-label="受理决定" hidden>
+          <details id="case-reopen" hidden>
+            <summary>锁定年度与重开审批</summary>
+            <div class="stack">
+              <p data-reopen-status role="status"></p>
+              <p data-reopen-error role="alert"></p>
+              <div data-reopen-impact class="stack" hidden></div>
+              <button data-reopen-refresh type="button">刷新重开状态</button>
+              <ul data-reopen-requests class="history-list" hidden></ul>
+            </div>
+          </details>
           <p id="review-error" role="alert"></p>
           <form id="review-form" hidden>
             <label for="reason">退回理由</label>
             <textarea id="reason" maxlength="500" required></textarea>
             <div class="actions">
-              <button class="primary" type="button" id="approve">批准</button>
+              <button class="primary" type="button" id="approve">批准受理</button>
               <button type="submit" id="return">退回补正</button>
             </div>
           </form>
@@ -204,6 +374,21 @@
             <h3>未提交的退回理由</h3>
             <p id="preserved-reason-text"></p>
           </section>
+          <details>
+            <summary>办理历史</summary>
+            <div id="history"></div>
+          </details>
+          </section>
+          <section id="dossier-reports" class="dossier-section" aria-label="报告复核" hidden>
+          <details id="gas-restatement" hidden>
+            <summary>天然气报告重述审批</summary>
+            <div class="stack">
+              <p data-restatement-state role="status"></p>
+              <p data-restatement-error role="alert"></p>
+              <button data-restatement-refresh type="button">刷新申请</button>
+              <ul data-restatement-items class="history-list" hidden></ul>
+            </div>
+          </details>
           <details id="report-review">
             <summary>报告稿件复核</summary>
             <div class="stack">
@@ -221,6 +406,12 @@
                 <ul id="report-review-items" class="history-list"></ul>
                 <a id="report-review-full">打开完整报告</a>
                 <p id="report-review-decision"></p>
+                <section class="stack" aria-labelledby="report-release-heading">
+                  <h4 id="report-release-heading">正式发布条件</h4>
+                  <p id="report-release-status" role="status"></p>
+                  <p id="report-release-error" role="alert"></p>
+                  <ul id="report-release-checks" class="history-list" hidden></ul>
+                </section>
               </article>
               <p id="report-review-error" role="alert"></p>
               <form id="report-review-form" hidden>
@@ -233,13 +424,61 @@
               </form>
             </div>
           </details>
-          <details>
-            <summary>办理历史</summary>
-            <div id="history"></div>
-          </details>
+          </section>
         </div>
       </section>
     </div>
+    <section id="review-tools" class="stack" aria-labelledby="review-tools-title">
+      <h2 id="review-tools-title" tabindex="-1">专业工具</h2>
+      <details id="model-templates" class="panel">
+        <summary>模型模板与引用</summary>
+        <div class="stack">
+          <label for="model-template-choice">模板版本</label>
+          <select id="model-template-choice" disabled></select>
+          <div id="model-template-dependencies" hidden>
+            <h3>固定依赖</h3>
+            <ul id="model-template-dependency-list" class="history-list"></ul>
+          </div>
+          <p id="model-template-status" role="status"></p>
+          <p id="model-template-error" role="alert"></p>
+          <ul id="model-template-impacts" class="history-list" hidden></ul>
+        </div>
+      </details>
+      <details id="factor-references" class="panel">
+        <summary>官方因子查询</summary>
+        <form id="factor-reference-form" class="actions">
+          <label for="factor-accounting-basis">核算口径</label>
+          <select id="factor-accounting-basis">
+            <option value="product_footprint">产品电力碳足迹</option>
+            <option value="organization_electricity_co2">电力消费二氧化碳排放</option>
+          </select>
+          <label for="factor-data-year">数据年份</label>
+          <select id="factor-data-year">
+            <option value="2024">2024 年</option>
+            <option value="2023">2023 年</option>
+          </select>
+          <label for="factor-region">适用地域</label>
+          <select id="factor-region" required disabled><option value="">请选择地域</option></select>
+          <button id="factor-reference-search" type="submit" disabled>查询因子</button>
+        </form>
+        <p id="factor-region-status" role="status"></p>
+        <p id="factor-region-error" role="alert"></p>
+        <button id="factor-region-retry" type="button" hidden>重新读取地域</button>
+        <p id="factor-reference-status" role="status"></p>
+        <p id="factor-reference-error" role="alert"></p>
+        <ul id="factor-reference-results" class="history-list" hidden></ul>
+      </details>
+      <details id="rule-proposal-review" class="panel">
+        <summary>规则草案审批</summary>
+        <div class="stack">
+          <p class="muted">审批限本组织的独立专业人员。发布由发布岗执行。</p>
+          <p id="rule-proposal-review-status" role="status"></p>
+          <p id="rule-proposal-review-error" role="alert"></p>
+          <ul id="rule-proposal-review-list" class="history-list" hidden></ul>
+          <button type="button" id="rule-proposal-review-refresh">刷新草案</button>
+        </div>
+      </details>
+    </section>
   </main>
 </body>
 </html>

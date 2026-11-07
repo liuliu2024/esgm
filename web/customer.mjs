@@ -1,5 +1,9 @@
-import { evidenceStatusLabel, getContext, internalReportHref, renderCasePreparation, renderHistory, renderRevisionEvidence, reportItemDisplay, reportTotals, request, statusLabel } from './shared.mjs';
+import { evidenceStatusLabel, getContext, internalReportHref, renderCasePreparation, renderHistory, renderRevisionEvidence, reportItemDisplay, reportKind, reportTotals, request, statusLabel } from './shared.mjs';
 import { bindRuleAssessment } from './rule-assessment.mjs';
+import { bindProductElectricity } from './product-electricity.mjs';
+import { bindGasRestatement } from './gas-restatement.mjs';
+import { bindReviewIssues } from './review-issues.mjs';
+import { bindCaseReopen } from './case-reopen.mjs';
 
 const element = id => document.getElementById(id);
 const list = element('cases');
@@ -27,9 +31,28 @@ const evidenceItems = element('evidence-items');
 const evidenceForm = element('register-evidence');
 const evidenceError = element('evidence-error');
 const revisionEvidence = element('case-revision-evidence');
+const reviewIssues = bindReviewIssues(element('review-issues'), 'customer');
+const showCaseReopen = bindCaseReopen(element('case-reopen'), 'customer');
 const showRuleAssessment = bindRuleAssessment(element('case-rule-assessment'));
+const showProductElectricity = bindProductElectricity(element('product-electricity'));
 const revisionEvidenceState = element('case-revision-evidence-state');
 const revisionEvidenceItems = element('case-revision-evidence-items');
+const gasSnapshots = element('gas-snapshots');
+const showGasRestatement = bindGasRestatement(element('gas-restatement'), 'customer');
+const gasSnapshotRevision = element('gas-snapshot-revision');
+const gasSnapshotStatus = element('gas-snapshot-status');
+const gasSnapshotError = element('gas-snapshot-error');
+const gasSnapshotList = element('gas-snapshot-list');
+const gasSnapshotForm = element('gas-snapshot-form');
+const gasSnapshotSave = gasSnapshotForm.querySelector('[type=submit]');
+const gasSnapshotSaveError = element('gas-snapshot-save-error');
+const gasSnapshotResult = element('gas-snapshot-result');
+const gasJobCreate = element('gas-job-create');
+const gasJobsRefresh = element('gas-jobs-refresh');
+const gasJobsStatus = element('gas-jobs-status');
+const gasJobsError = element('gas-jobs-error');
+const gasJobsList = element('gas-jobs-list');
+const gasJobDetail = element('gas-job-detail');
 const base = '/v1/customer/cases';
 const notes = new Map();
 const selectedEvidence = new Map();
@@ -62,6 +85,7 @@ let reportHistoryView;
 let referenceReleaseId;
 let referenceLoad = 0;
 let suggestedPurpose;
+let gasSnapshotView;
 
 function renderScenario() {
   const matches = catalog.filter(item => item.industryCode === industry.value);
@@ -211,6 +235,7 @@ function reportDeliveryPanel(draft, path) {
   const list = find('.report-delivery-list');
   const status = find('.report-delivery-state');
   const error = find('.report-delivery-error');
+  const policyNote = find('.report-delivery-policy');
   const detail = find('.report-delivery-detail');
   const title = find('.report-delivery-title');
   const download = find('.report-delivery-download');
@@ -221,10 +246,27 @@ function reportDeliveryPanel(draft, path) {
   let working = false;
   let loaded = false;
   let current;
+  let policy = draft.deliveryPolicy;
+  const {includeFactor, includeMonthly} = create.elements;
 
   const revision = selected.status === 'approved' ? selected.revision - 1 : selected.revision;
-  create.hidden = !['submitted', 'approved'].includes(selected.status) || revision !== draft.report.scope.submissionRevision;
+  const currentRevision = ['submitted', 'approved'].includes(selected.status) && revision === draft.report.scope.submissionRevision;
   create.elements.recipient.value = draft.report.scope.declaredScope?.recipient ?? '';
+
+  function applyDeliveryPolicy() {
+    create.hidden = !currentRevision || policy?.allowDelivery !== true;
+    policyNote.textContent = !policy ? '披露策略待核对。'
+      : policy.factorDisclosure === 'internal_only' ? '因子仅限内部使用，不能准备新的采购方交付件。'
+        : policy.factorDisclosure === 'summary_only' ? '对外交付仅含汇总排放，不含因子来源、数值和逐月明细。' : '';
+    policyNote.hidden = !policyNote.textContent;
+    for (const [control, allowed] of [[includeFactor, policy?.allowFactor], [includeMonthly, policy?.allowMonthly]]) {
+      if (!allowed) control.checked = false;
+      control.toggleAttribute('data-delivery-locked', !allowed);
+      control.disabled = busy || !allowed;
+    }
+  }
+
+  applyDeliveryPolicy();
 
   function display(delivery, downloadable) {
     if (current?.deliveryId !== delivery.deliveryId || delivery.status === 'recorded') record.reset();
@@ -285,7 +327,18 @@ function reportDeliveryPanel(draft, path) {
   }
 
   panel.addEventListener('toggle', () => {
-    if (panel.open && !loaded) void run('正在读取交付记录…', loadList);
+    if (!panel.open || (loaded && policy)) return;
+    void run('正在读取交付记录…', async () => {
+      if (!policy) {
+        const draftPath = path.slice(0, -'/deliveries'.length);
+        const [result, message] = await Promise.all([request(`${draftPath}?${query}`), loadList()]);
+        if (!active()) return;
+        policy = result.deliveryPolicy;
+        applyDeliveryPolicy();
+        return message;
+      }
+      return loadList();
+    });
   });
   list.addEventListener('click', event => {
     const button = event.target.closest('button[data-delivery-id]');
@@ -298,10 +351,12 @@ function reportDeliveryPanel(draft, path) {
   });
   create.addEventListener('submit', event => {
     event.preventDefault();
+    if (create.hidden || policy?.allowDelivery !== true) return;
     void run('正在准备交付件…', async () => {
-      const {recipient, purpose, includeMonthly, includeFactor} = create.elements;
+      const {recipient, purpose} = create.elements;
       const delivery = await request(path, {orgId, recipient: recipient.value.trim(), purpose: purpose.value.trim(),
-        includeMonthly: includeMonthly.checked, includeFactor: includeFactor.checked});
+        includeMonthly: policy.allowMonthly === true && includeMonthly.checked,
+        includeFactor: policy.allowFactor === true && includeFactor.checked});
       if (!active()) return;
       await Promise.all([loadList(), readDelivery(delivery.deliveryId)]);
       if (active()) title.focus();
@@ -365,7 +420,8 @@ function reportReviewPanel(draft) {
   panel.dataset.reviewDraft = draft.draftId;
   const heading = document.createElement('h5');
   const controlled = draft.mode === 'controlled';
-  heading.textContent = controlled ? '管理稿复核' : '演示稿复核';
+  const kind = controlled ? '管理稿' : reportKind(draft.mode);
+  heading.textContent = `${kind}复核`;
   const status = document.createElement('p');
   status.className = 'report-review-status';
   status.setAttribute('role', 'status');
@@ -380,14 +436,18 @@ function reportReviewPanel(draft) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'report-review-submit';
-  button.textContent = controlled ? '提交管理稿复核' : '提交演示稿复核';
+  button.textContent = `提交${kind}复核`;
   button.hidden = true;
   panel.append(heading, status, reason, error, button);
 
   const {caseId, draftId} = draft;
   const path = `${base}/${caseId}/internal-report-drafts/${draftId}`;
   const active = () => panel.isConnected && selected?.id === caseId;
-  const canSubmit = () => selected?.status === 'submitted' || selected?.status === 'approved';
+  const canSubmit = () => {
+    const revision = selected?.status === 'approved' ? selected.revision - 1
+      : selected?.status === 'submitted' ? selected.revision : null;
+    return revision !== null && (draft.mode !== 'internal_trial' || revision === draft.report.scope.submissionRevision);
+  };
   let posting = false;
   let submitted = false;
   let deliveryPanel;
@@ -447,14 +507,15 @@ function renderReport(container, draft, historical = false) {
   container.replaceChildren();
   if (!draft) return;
   const heading = document.createElement('h4');
-  const controlled = draft.mode === 'controlled';
-  heading.textContent = historical ? `${controlled ? '历史管理稿' : '历史演示稿'} · ${draft.report.title}` : draft.report.title;
+  const revisionBound = draft.mode === 'controlled' || draft.mode === 'internal_trial';
+  const kind = draft.mode === 'controlled' ? '管理稿' : reportKind(draft.mode);
+  heading.textContent = historical ? `历史${kind} · ${draft.report.title}` : draft.report.title;
   const watermark = document.createElement('strong');
   watermark.textContent = draft.report.watermark;
   const {from, to, declaredScope, submissionRevision} = draft.report.scope;
   const summary = document.createElement('p');
   const totals = reportTotals(draft.report, draft.mode);
-  summary.textContent = controlled ? `提交第 ${submissionRevision} 版 · 核算期间 ${from} 至 ${to} · ${totals.main} · ${totals.note}`
+  summary.textContent = revisionBound ? `提交第 ${submissionRevision} 版 · 核算期间 ${from} 至 ${to} · ${totals.main} · ${totals.note}`
     : `${declaredScope ? '核算期间 ' : ''}${from} 至 ${to} · ${draft.report.summary.totalKgCO2e} kgCO₂e（${totals.main}）`;
   container.append(heading, watermark, summary);
   if (draft.report.excludedSources?.length) {
@@ -505,7 +566,7 @@ function renderReportHistory() {
     button.dataset.draftId = draft.draftId;
     button.disabled = busy;
     const created = new Date(draft.createdAt).toLocaleString('zh-CN');
-    button.textContent = `${draft.mode === 'controlled' ? '内部管理稿' : '演示稿'} · ${draft.from} 至 ${draft.to} · ${created} · 模板 v${draft.templateVersion}`;
+    button.textContent = `${reportKind(draft.mode)} · ${draft.from} 至 ${draft.to} · ${created} · 模板 v${draft.templateVersion}`;
     row.append(button);
     return row;
   }));
@@ -658,6 +719,7 @@ function renderList() {
     button.setAttribute('aria-current', String(!creating && selected?.id === item.id));
     button.disabled = busy;
     const purpose = document.createElement('span');
+    purpose.className = 'case-card-title';
     purpose.textContent = item.purpose;
     const state = document.createElement('span');
     state.className = 'status';
@@ -675,7 +737,17 @@ function renderList() {
 function renderDetail() {
   create.hidden = !creating;
   detail.hidden = creating || !selected;
+  element('case-workspace').hidden = !creating && !selected;
   element('placeholder').hidden = !detail.hidden || creating;
+  reviewIssues.show(!detail.hidden && selected.status !== 'draft'
+    ? {caseId: selected.id, orgId: context.orgId} : undefined);
+  showCaseReopen(!detail.hidden && selected.status === 'approved' && selected.scope?.reportingYear
+    ? {caseId: selected.id, orgId: context.orgId} : undefined);
+  showGasSnapshots(detail.hidden ? undefined : selected);
+  showGasRestatement(!detail.hidden && selected.gasCombustionAvailable && selected.status !== 'draft'
+    ? {caseId: selected.id, orgId: context.orgId, revision: selected.revision} : undefined);
+  showProductElectricity(!detail.hidden && selected.productElectricityAvailable && selected.status !== 'draft'
+    ? {base: `${base}/${encodeURIComponent(selected.id)}`, orgId: context.orgId, taskRevision: selected.revision} : undefined);
   if (detail.hidden) {
     showRuleAssessment();
     return;
@@ -694,6 +766,15 @@ function renderDetail() {
   const status = element('case-status');
   status.textContent = statusLabel(selected.status);
   status.dataset.status = selected.status;
+  const step = selected.status === 'approved' ? 'result' : selected.status === 'submitted' ? 'review' : 'prepare';
+  for (const item of detail.querySelectorAll('[data-case-step]')) {
+    if (item.dataset.caseStep === step) item.setAttribute('aria-current', 'step');
+    else item.removeAttribute('aria-current');
+  }
+  const nextAction = element('case-next-action');
+  nextAction.hidden = step === 'review';
+  nextAction.href = step === 'result' ? '#report-history' : '#evidence-heading';
+  nextAction.textContent = step === 'result' ? '查看报告记录' : selected.status === 'returned' ? '补充材料' : '准备材料';
   element('case-revision').textContent = '第 ' + selected.revision + ' 版';
   renderCasePreparation(element('case-scenario-preparation'), selected.id, selected.scenarioPreparation);
   const scope = selected.scope;
@@ -715,10 +796,14 @@ function renderDetail() {
   renderWorkflow();
 }
 
+element('case-next-action').addEventListener('click', () => {
+  if (selected?.status === 'approved') element('report-history').open = true;
+});
+
 function setBusy(value) {
   busy = value;
   for (const control of document.querySelectorAll('button, input, select, textarea')) {
-    control.disabled = value;
+    control.disabled = value || control.hasAttribute('data-delivery-locked');
   }
 }
 
@@ -852,6 +937,330 @@ revisionEvidence.addEventListener('toggle', async () => {
     revisionEvidenceState.textContent = `第 ${submission.revision} 版${items.length ? '' : '未引用材料。'}`;
   } catch (error) {
     if (selected === item && revisionEvidence.open) revisionEvidenceState.textContent = error.message;
+  }
+});
+
+function showGasSnapshots(item) {
+  const eligible = item?.gasCombustionAvailable && item.status !== 'draft';
+  const key = eligible ? `${item.id}:${item.revision}:${item.status}` : undefined;
+  if (gasSnapshotView?.key === key) return;
+  gasSnapshotView = eligible ? {key, path: `${base}/${encodeURIComponent(item.id)}`, orgId: context.orgId,
+    writableRevision: item.status === 'submitted' ? item.revision : item.status === 'approved' ? item.revision - 1 : null} : undefined;
+  gasSnapshots.open = false;
+  gasSnapshots.hidden = !eligible;
+  gasSnapshotForm.reset();
+  gasSnapshotForm.elements.namedItem('to').setCustomValidity('');
+  gasSnapshotForm.hidden = gasSnapshotList.hidden = gasSnapshotResult.hidden = gasSnapshotRevision.disabled = true;
+  gasSnapshotRevision.replaceChildren();
+  gasSnapshotList.replaceChildren();
+  gasSnapshotResult.replaceChildren();
+  gasJobsList.replaceChildren();
+  gasJobDetail.replaceChildren();
+  gasJobDetail.hidden = gasJobsList.hidden = true;
+  gasJobsRefresh.disabled = gasJobCreate.disabled = gasSnapshotSave.disabled = false;
+  gasJobsStatus.textContent = gasJobsError.textContent = '';
+  gasSnapshotStatus.textContent = gasSnapshotError.textContent = gasSnapshotSaveError.textContent = '';
+}
+
+const gasSnapshotDate = new Intl.DateTimeFormat('zh-CN', {timeZone: 'Asia/Shanghai', dateStyle: 'short', timeStyle: 'short'});
+
+function renderGasSnapshot({snapshotId, createdAt, result}) {
+  const heading = document.createElement('h3');
+  const scope = document.createElement('p');
+  const source = document.createElement('a');
+  const rows = document.createElement('ul');
+  heading.textContent = `${result.totalKgCO2} kgCO₂ · 内部试算`;
+  scope.textContent = `${result.facility} · 第 ${result.submissionRevision} 版 · ${result.from} 至 ${result.to} · ${gasSnapshotDate.format(new Date(createdAt))}`;
+  source.href = result.model.sourceUrl;
+  source.target = '_blank';
+  source.rel = 'noopener noreferrer';
+  source.textContent = `${result.model.sourceLocator} · 模型第 ${result.model.version} 版`;
+  rows.className = 'history-list';
+  for (const item of result.items) {
+    const row = document.createElement('li');
+    const method = item.methodBranch === 'measured_carbon' ? '实测元素碳含量' : '低位发热量法';
+    row.textContent = `${item.period} · ${item.standardVolumeNm3} Nm³ · ${item.emissionsKgCO2} kgCO₂ · ${method}`;
+    rows.append(row);
+  }
+  gasSnapshotResult.replaceChildren(heading, scope, source, rows);
+  const view = gasSnapshotView;
+  const revision = result.submissionRevision;
+  if (revision === view.writableRevision) {
+    const generate = document.createElement('button');
+    generate.type = 'button';
+    generate.textContent = '生成内部试算报告';
+    const error = document.createElement('p');
+    error.setAttribute('role', 'alert');
+    const report = document.createElement('section');
+    report.className = 'stack';
+    report.hidden = true;
+    const active = () => gasSnapshotView === view && !gasSnapshotResult.hidden && generate.isConnected
+      && Number(gasSnapshotRevision.value) === revision;
+    let generating = false;
+    generate.addEventListener('click', async () => {
+      if (!active() || generating || busy) return;
+      generating = generate.disabled = true;
+      error.textContent = '';
+      try {
+        const path = `${view.path}/revisions/${revision}/gas-combustion/snapshots/${encodeURIComponent(snapshotId)}/internal-report-draft`;
+        const draft = await request(path, {orgId: view.orgId});
+        if (!active()) return;
+        renderReport(report, draft);
+        generate.hidden = true;
+        report.querySelector('a')?.focus();
+      } catch (failure) {
+        if (active()) {
+          error.textContent = failure.message;
+          if (failure.code === 'GAS_RESTATEMENT_REQUIRED') {
+            const restatement = element('gas-restatement');
+            restatement.open = true;
+            restatement.querySelector('summary').focus();
+          }
+        }
+      } finally {
+        generating = false;
+        generate.disabled = busy;
+      }
+    });
+    gasSnapshotResult.append(generate, error, report);
+  }
+  gasSnapshotResult.hidden = false;
+  gasSnapshotResult.focus();
+}
+
+async function loadGasSnapshots(view, revision) {
+  const load = Symbol();
+  view.listLoad = load;
+  gasSnapshotList.replaceChildren();
+  gasSnapshotList.hidden = true;
+  gasSnapshotStatus.textContent = '正在读取试算快照…';
+  gasSnapshotError.textContent = '';
+  const path = `${view.path}/revisions/${revision}/gas-combustion/snapshots`;
+  const query = new URLSearchParams({orgId: view.orgId});
+  try {
+    const {items} = await request(`${path}?${query}`);
+    if (gasSnapshotView !== view || view.listLoad !== load) return;
+    for (const item of items) {
+      const row = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      const span = item.from === item.to ? item.from : `${item.from} 至 ${item.to}`;
+      button.textContent = `${span} · ${item.totalKgCO2} kgCO₂ · ${gasSnapshotDate.format(new Date(item.createdAt))}`;
+      button.addEventListener('click', async () => {
+        const selection = Symbol();
+        view.detailLoad = selection;
+        gasSnapshotResult.hidden = true;
+        gasSnapshotError.textContent = '';
+        gasSnapshotStatus.textContent = '正在读取试算结果…';
+        try {
+          const snapshot = await request(`${path}/${encodeURIComponent(item.snapshotId)}?${query}`);
+          if (gasSnapshotView === view && view.detailLoad === selection && view.listLoad === load) renderGasSnapshot(snapshot);
+        } catch (failure) {
+          if (gasSnapshotView === view && view.detailLoad === selection && view.listLoad === load) gasSnapshotError.textContent = failure.message;
+        } finally {
+          if (gasSnapshotView === view && view.detailLoad === selection && view.listLoad === load) gasSnapshotStatus.textContent = '';
+        }
+      });
+      row.append(button);
+      gasSnapshotList.append(row);
+    }
+    gasSnapshotList.hidden = !items.length;
+    gasSnapshotStatus.textContent = items.length ? '' : '该提交版本暂无试算快照。';
+  } catch (failure) {
+    if (gasSnapshotView !== view || view.listLoad !== load) return;
+    gasSnapshotStatus.textContent = '';
+    gasSnapshotError.textContent = failure.message;
+  }
+}
+
+const gasJobStates = {queued: '排队中', running: '运行中', succeeded: '已完成', failed: '失败', cancelled: '已取消'};
+
+function gasJobLabel(job) {
+  const span = job.from === job.to ? job.from : `${job.from} 至 ${job.to}`;
+  return `第 ${job.submissionRevision} 版 · ${span} · ${gasJobStates[job.status]}${job.freshness === 'stale' ? ' · 旧提交' : ''}`;
+}
+
+function renderGasJob(view, job) {
+  const heading = document.createElement('h4');
+  heading.textContent = gasJobLabel(job);
+  const meta = document.createElement('p');
+  meta.className = 'muted';
+  meta.textContent = `执行 ${job.attempts} 次 · 更新于 ${gasSnapshotDate.format(new Date(job.updatedAt))}`;
+  gasJobDetail.replaceChildren(heading, meta);
+  if (job.status === 'queued' || job.errorCode) {
+    const explanation = document.createElement('p');
+    explanation.textContent = job.status === 'queued' ? '等待后台执行，可刷新查看进度。'
+      : job.errorCode === 'CALCULATION_INCOMPLETE' ? '所选期间仍有月份缺少燃烧输入。' : `作业错误：${job.errorCode}`;
+    gasJobDetail.append(explanation);
+  }
+  gasJobDetail.hidden = false;
+
+  const action = job.status === 'queued' ? 'cancel'
+    : job.freshness === 'current' && ['failed', 'cancelled'].includes(job.status) ? 'retry' : null;
+  const opensSnapshot = job.status === 'succeeded' && job.snapshotId;
+  if (!action && !opensSnapshot) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = opensSnapshot ? '打开试算快照' : action === 'cancel' ? '取消作业' : '重试作业';
+  button.addEventListener('click', async () => {
+    if (gasSnapshotView !== view || view.selectedJobId !== job.jobId || view.jobAction || busy) return;
+    const active = () => gasSnapshotView === view && view.selectedJobId === job.jobId;
+    const token = Symbol();
+    view.jobAction = token;
+    button.disabled = true;
+    gasJobsError.textContent = '';
+    try {
+      if (opensSnapshot) {
+        gasSnapshotRevision.value = String(job.submissionRevision);
+        selectGasSnapshotRevision();
+        const selection = Symbol();
+        view.detailLoad = selection;
+        const path = `${view.path}/revisions/${job.submissionRevision}/gas-combustion/snapshots/${encodeURIComponent(job.snapshotId)}`;
+        const snapshot = await request(`${path}?${new URLSearchParams({orgId: view.orgId})}`);
+        if (active() && view.detailLoad === selection) renderGasSnapshot(snapshot);
+      } else {
+        const path = `${view.path}/gas-combustion/jobs/${encodeURIComponent(job.jobId)}/${action}`;
+        const updated = await request(path, {orgId: view.orgId});
+        if (active()) renderGasJob(view, updated);
+        if (gasSnapshotView === view) void loadGasJobs(view, false);
+      }
+    } catch (failure) {
+      if (active()) gasJobsError.textContent = failure.message;
+    } finally {
+      if (view.jobAction === token) view.jobAction = undefined;
+      if (active()) button.disabled = busy;
+    }
+  });
+  gasJobDetail.append(button);
+}
+
+async function loadGasJob(view, jobId) {
+  const token = Symbol();
+  view.jobSelection = token;
+  view.selectedJobId = jobId;
+  gasJobDetail.hidden = true;
+  gasJobsError.textContent = '';
+  try {
+    const path = `${view.path}/gas-combustion/jobs/${encodeURIComponent(jobId)}`;
+    const job = await request(`${path}?${new URLSearchParams({orgId: view.orgId})}`);
+    if (gasSnapshotView === view && view.jobSelection === token) renderGasJob(view, job);
+  } catch (failure) {
+    if (gasSnapshotView === view && view.jobSelection === token) gasJobsError.textContent = failure.message;
+  }
+}
+
+async function loadGasJobs(view, refreshSelected = true) {
+  const token = Symbol();
+  view.jobsLoad = token;
+  gasJobsRefresh.disabled = true;
+  gasJobsStatus.textContent = '正在读取后台作业…';
+  gasJobsError.textContent = '';
+  try {
+    const {items} = await request(`${view.path}/gas-combustion/jobs?${new URLSearchParams({orgId: view.orgId})}`);
+    if (gasSnapshotView !== view || view.jobsLoad !== token) return;
+    gasJobsList.replaceChildren(...items.map(job => {
+      const row = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = gasJobLabel(job);
+      button.addEventListener('click', () => void loadGasJob(view, job.jobId));
+      row.append(button);
+      return row;
+    }));
+    gasJobsList.hidden = !items.length;
+    gasJobsStatus.textContent = items.length ? '' : '本任务暂无后台试算作业。';
+    if (refreshSelected && view.selectedJobId) void loadGasJob(view, view.selectedJobId);
+  } catch (failure) {
+    if (gasSnapshotView !== view || view.jobsLoad !== token) return;
+    gasJobsStatus.textContent = '';
+    gasJobsError.textContent = failure.message;
+  } finally {
+    if (gasSnapshotView === view && view.jobsLoad === token) gasJobsRefresh.disabled = false;
+  }
+}
+
+gasJobsRefresh.addEventListener('click', () => {
+  if (gasSnapshotView) void loadGasJobs(gasSnapshotView);
+});
+
+function selectGasSnapshotRevision() {
+  const view = gasSnapshotView;
+  const revision = Number(gasSnapshotRevision.value);
+  if (!view || !revision) return;
+  view.detailLoad = undefined;
+  gasSnapshotForm.hidden = revision !== view.writableRevision;
+  gasJobCreate.disabled = gasSnapshotSave.disabled = Boolean(view.saving);
+  gasSnapshotSaveError.textContent = '';
+  gasSnapshotResult.hidden = true;
+  void loadGasSnapshots(view, revision);
+}
+
+gasSnapshots.addEventListener('toggle', async () => {
+  const view = gasSnapshotView;
+  if (!view || !gasSnapshots.open || view.reading) return;
+  void loadGasJobs(view);
+  if (gasSnapshotRevision.value) {
+    selectGasSnapshotRevision();
+    return;
+  }
+  view.reading = true;
+  gasSnapshotError.textContent = '';
+  gasSnapshotStatus.textContent = '正在读取提交版本…';
+  try {
+    const {events} = await request(`${view.path}/history?${new URLSearchParams({orgId: view.orgId})}`);
+    if (gasSnapshotView !== view) return;
+    const revisions = events.filter(event => event.action === 'submitted').map(event => event.revision).sort((a, b) => b - a);
+    gasSnapshotRevision.replaceChildren(...revisions.map(revision => new Option(`第 ${revision} 版`, revision)));
+    gasSnapshotRevision.disabled = !revisions.length;
+    if (revisions.length) selectGasSnapshotRevision();
+    else gasSnapshotStatus.textContent = '暂无已提交版本。';
+  } catch (failure) {
+    if (gasSnapshotView !== view) return;
+    gasSnapshotStatus.textContent = '';
+    gasSnapshotError.textContent = failure.message;
+  } finally {
+    view.reading = false;
+  }
+});
+gasSnapshotRevision.addEventListener('change', selectGasSnapshotRevision);
+gasSnapshotForm.addEventListener('change', () => {
+  gasSnapshotForm.elements.namedItem('to').setCustomValidity('');
+  gasSnapshotSaveError.textContent = '';
+});
+gasSnapshotForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const view = gasSnapshotView;
+  const revision = Number(gasSnapshotRevision.value);
+  if (!view || revision !== view.writableRevision || view.saving || busy) return;
+  const background = event.submitter === gasJobCreate;
+  const {from, to} = Object.fromEntries(new FormData(gasSnapshotForm));
+  gasSnapshotForm.elements.namedItem('to').setCustomValidity(from <= to ? '' : '结束月不能早于起始月。');
+  if (!gasSnapshotForm.reportValidity()) return;
+  view.detailLoad = undefined;
+  view.saving = gasJobCreate.disabled = gasSnapshotSave.disabled = true;
+  gasSnapshotSaveError.textContent = '';
+  try {
+    const collection = `${view.path}/revisions/${revision}/gas-combustion`;
+    const result = await request(`${collection}/${background ? 'jobs' : 'snapshots'}`, {orgId: view.orgId, from, to});
+    if (background && gasSnapshotView === view) {
+      view.jobSelection = undefined;
+      view.selectedJobId = result.jobId;
+      renderGasJob(view, result);
+      void loadGasJobs(view, false);
+      return;
+    }
+    if (gasSnapshotView !== view || Number(gasSnapshotRevision.value) !== revision) return;
+    view.detailLoad = undefined;
+    renderGasSnapshot(result);
+    void loadGasSnapshots(view, revision);
+  } catch (failure) {
+    if (gasSnapshotView === view && Number(gasSnapshotRevision.value) === revision) {
+      gasSnapshotSaveError.textContent = failure.code === 'CALCULATION_INCOMPLETE'
+        ? '所选期间仍有月份缺少燃烧输入，补齐后再冻结。' : failure.message;
+    }
+  } finally {
+    view.saving = false;
+    if (gasSnapshotView === view) gasJobCreate.disabled = gasSnapshotSave.disabled = false;
   }
 });
 
@@ -996,6 +1405,8 @@ async function sendCase(isCorrection) {
     if (current.id === item.id && !Object.hasOwn(current, 'scenarioPreparation') && item.scenarioPreparation) {
       current.scenarioPreparation = item.scenarioPreparation;
     }
+    if (current.id === item.id && item.gasCombustionAvailable) current.gasCombustionAvailable = true;
+    if (current.id === item.id && item.productElectricityAvailable) current.productElectricityAvailable = true;
     updateCase(current);
     feedback.textContent = '已提交复核。';
     await Promise.all([loadHistory(), loadEvidence()]);

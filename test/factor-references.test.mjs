@@ -47,7 +47,8 @@ test('factor references match the exact accounting basis, geography and year', a
     assert.equal(response.body.items.length, 1);
     const [{sourceTitle, sourceLocator, usageNote, ...factor}] = response.body.items;
     assert.deepEqual(factor, {factorId, version: 1, accountingBasis: query.accountingBasis,
-      regionCode: 'CN', dataYear: Number(query.dataYear), value, inputUnit: 'kWh', outputUnit, sourceUrl});
+      regionCode: 'CN', dataYear: Number(query.dataYear), value, inputUnit: 'kWh', outputUnit, sourceUrl,
+      disclosureScope: 'source_and_value'});
     assert.match(sourceTitle, new RegExp(query.dataYear));
     assert.match(sourceLocator, /表 1/);
     assert.match(usageNote, /仅供参考/);

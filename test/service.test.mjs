@@ -230,4 +230,3 @@ test('rejects a spoofed body role and requires trusted context', async () => {
     'x-actor-id': administrator, 'x-tenant-id': tenant, 'x-role': 'admin'
   }}), 401, 'AUTHENTICATION_REQUIRED');
 });
-

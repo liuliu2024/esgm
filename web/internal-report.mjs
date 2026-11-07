@@ -26,7 +26,7 @@ try {
   const draft = view === 'professional' ? result.draft : result;
   const { review } = result;
   const { report, mode, template, createdAt } = draft;
-  const { scope, summary, items, limitations, factorDecision, excludedSources } = report;
+  const { scope, summary, items, limitations, factorDecision, excludedSources, restatement } = report;
   const date = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Shanghai' });
 
   element('internal-report-title').textContent = report.title;
@@ -35,7 +35,9 @@ try {
   if (review && Object.hasOwn(reviewStates, review.status)) {
     const state = element('internal-report-review');
     const reviewLabel = mode === 'controlled'
-      ? {submitted: '待内部复核', reviewed: '内部复核通过', returned: '管理稿已退回'}[review.status] : reviewStates[review.status];
+      ? {submitted: '待内部复核', reviewed: '内部复核通过', returned: '管理稿已退回'}[review.status]
+      : mode === 'internal_trial' ? {submitted: '待内部复核', reviewed: '内部试算复核通过', returned: '试算报告已退回'}[review.status]
+        : reviewStates[review.status];
     state.textContent = [reviewLabel, review.reviewedAt && date.format(new Date(review.reviewedAt))].filter(Boolean).join(' · ');
     state.hidden = false;
     if (review.reason) {
@@ -49,6 +51,11 @@ try {
 
   const fields = [['核算期间', `${scope.from} 至 ${scope.to}`], ['办理用途', scope.purpose]];
   if (scope.submissionRevision) fields.push(['提交版本', `第 ${scope.submissionRevision} 版`]);
+  if (restatement) {
+    fields.push(['重述基准', `提交第 ${restatement.baselineRevision} 版`],
+      ['重述差额', `${restatement.deltaKgCO2} kg CO₂`], ['重述原因', restatement.reason],
+      ['重述批准时间', date.format(new Date(restatement.reviewedAt))]);
+  }
   if (excludedSources?.length) fields.push(['范围外来源', excludedSources.map(source => sourceNames[source] ?? source).join('、')]);
   if (scope.declaredScope) {
     const { subjectType, subjectName, jurisdiction, reportingYear, recipient } = scope.declaredScope;
@@ -67,10 +74,14 @@ try {
   if (factorDecision) {
     const {factor, methodReference, rationale} = factorDecision;
     const fields = element('internal-report-factor-fields');
-    for (const [label, value] of [
+    const factorDetails = [
       ['因子', `${factor.value} ${factor.outputUnit}/${factor.inputUnit} · ${factor.dataYear} 年 · 第 ${factor.version} 版`],
       ['方法或规则版本', methodReference], ['适用依据', rationale]
-    ]) {
+    ];
+    const disclosure = {source_and_value: '可披露来源与数值', summary_only: '仅可披露汇总排放', internal_only: '仅限内部使用'}
+      [draft.deliveryPolicy?.factorDisclosure];
+    if (disclosure) factorDetails.push(['因子披露范围', disclosure]);
+    for (const [label, value] of factorDetails) {
       const term = document.createElement('dt');
       const definition = document.createElement('dd');
       term.textContent = label;
@@ -81,6 +92,12 @@ try {
     source.href = factor.sourceUrl;
     source.textContent = factor.sourceTitle;
     element('internal-report-factor').hidden = false;
+  }
+  if (mode === 'internal_trial' && report.model?.sourceUrl) {
+    const source = element('internal-report-trial-source');
+    source.href = report.model.sourceUrl;
+    source.textContent = `${report.model.sourceLocator} · 模型第 ${report.model.version} 版`;
+    element('internal-report-trial-model').hidden = false;
   }
 
   for (const item of items) {

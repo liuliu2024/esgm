@@ -9,12 +9,15 @@ import { createEmbeddedDatabase } from '../infra/embedded.mjs';
 import { migrate } from '../infra/migrations.mjs';
 import { publishScenarioRule } from '../infra/publish-scenario-rule.mjs';
 
-const newMigrations = ['018_case_rule_assessment.sql', '019_scenario_rule_proposals.sql'];
+const newMigrations = ['018_case_rule_assessment.sql', '019_scenario_rule_proposals.sql', '020_gas_combustion_inputs.sql',
+  '021_model_trial_snapshots.sql', '022_internal_gas_report.sql', '023_gas_calculation_jobs.sql',
+    '024_product_electricity_profile.sql', '025_gas_report_restatement.sql', '026_product_model_templates.sql',
+    '027_factor_disclosure.sql', '028_review_issues.sql', '029_case_reopen.sql'];
 
 test('rule migrations bootstrap an empty database and replay without changes', async t => {
   const db = await createEmbeddedDatabase();
   t.after(() => db.close());
-  assert.deepEqual((await migrate(db.admin)).slice(-2), newMigrations);
+  assert.deepEqual((await migrate(db.admin)).slice(-newMigrations.length), newMigrations);
   assert.deepEqual(await migrate(db.admin), []);
 });
 
